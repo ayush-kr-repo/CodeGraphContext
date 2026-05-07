@@ -13,8 +13,14 @@ def resolve_inheritance_link(
     imports_map: dict,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single inheritance link. Returns row dict or None."""
+    import re
     if base_class_str == "object":
         return None
+
+    # Unwrap JS/TS mixins like Swimmable(Flyable(Person)) -> Person
+    m = re.search(r'([A-Za-z0-9_.]+)(?:\s*\))*$', base_class_str)
+    if m:
+        base_class_str = m.group(1)
 
     resolved_path = None
     target_class_name = base_class_str.split(".")[-1]

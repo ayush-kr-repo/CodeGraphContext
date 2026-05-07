@@ -553,6 +553,9 @@ class ScipIndexParser:
         best_enclosing_start = -1
         any_enclosing_range_present = False
         for occ in definition_occurrences:
+            # Skip module symbols (they end with '/' and act as the entire file scope)
+            if occ.symbol.endswith("/"):
+                continue
             er = list(getattr(occ, "enclosing_range", []))
             if not er:
                 continue

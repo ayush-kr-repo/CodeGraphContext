@@ -625,7 +625,8 @@ class GraphWriter:
                         if callee_kind == 7:  # Class instantiation
                             session.run(
                                 """
-                                MATCH (caller:Function {name: $caller_name, path: $caller_file, line_number: $caller_line})
+                                MATCH (caller {name: $caller_name, path: $caller_file, line_number: $caller_line})
+                                WHERE caller:Function OR caller:Variable OR caller:Class
                                 MATCH (callee:Class {name: $callee_name, path: $callee_file})
                                 MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
                             """,
@@ -639,7 +640,8 @@ class GraphWriter:
                         else:
                             session.run(
                                 """
-                                MATCH (caller:Function {name: $caller_name, path: $caller_file, line_number: $caller_line})
+                                MATCH (caller {name: $caller_name, path: $caller_file, line_number: $caller_line})
+                                WHERE caller:Function OR caller:Variable OR caller:Class
                                 MATCH (callee:Function {name: $callee_name, path: $callee_file, line_number: $callee_line})
                                 MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
                             """,
