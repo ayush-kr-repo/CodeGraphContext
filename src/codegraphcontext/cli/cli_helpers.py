@@ -354,9 +354,11 @@ def cypher_helper(query: str, context: Optional[str] = None):
 
     db_manager, _, _, ctx = services
     
-    # Replicating safety checks from MCPServer
+    # Replicating safety checks from MCPServer (using word boundaries to avoid false positives like 'createEmail')
+    import re
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-    if any(keyword in query.upper() for keyword in forbidden_keywords):
+    pattern = r'\b(' + '|'.join(forbidden_keywords) + r')\b'
+    if re.search(pattern, query, re.IGNORECASE):
         console.print("[bold red]Error: This command only supports read-only queries.[/bold red]")
         db_manager.close_driver()
         return
@@ -382,9 +384,11 @@ def cypher_helper_visual(query: str, context: Optional[str] = None):
 
     db_manager, _, _, ctx = services
     
-    # Replicating safety checks from MCPServer
+    # Replicating safety checks from MCPServer (using word boundaries to avoid false positives like 'createEmail')
+    import re
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-    if any(keyword in query.upper() for keyword in forbidden_keywords):
+    pattern = r'\b(' + '|'.join(forbidden_keywords) + r')\b'
+    if re.search(pattern, query, re.IGNORECASE):
         console.print("[bold red]Error: This command only supports read-only queries.[/bold red]")
         db_manager.close_driver()
         return

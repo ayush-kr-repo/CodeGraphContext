@@ -9,6 +9,25 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
     """Create constraints and indexes. *driver* must support .session() context manager."""
     with driver.session() as session:
         try:
+            # FalkorDB requires a supporting index to exist BEFORE creating a UNIQUE constraint.
+            # We create them here; Neo4j will ignore these or create them as redundant indices.
+            session.run("CREATE INDEX IF NOT EXISTS FOR (r:Repository) ON (r.path)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.path)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (d:Directory) ON (d.path)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (m:Module) ON (m.name)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (f:Function) ON (f.name, f.path, f.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.name, c.path, c.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (t:Trait) ON (t.name, t.path, t.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (i:Interface) ON (i.name, i.path, i.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (m:Macro) ON (m.name, m.path, m.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (v:Variable) ON (v.name, v.path, v.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (s:Struct) ON (s.name, s.path, s.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (e:Enum) ON (e.name, e.path, e.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (u:Union) ON (u.name, u.path, u.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (a:Annotation) ON (a.name, a.path, a.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (r:Record) ON (r.name, r.path, r.line_number)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (p:Property) ON (p.name, p.path, p.line_number)")
+
             session.run(
                 "CREATE CONSTRAINT repository_path IF NOT EXISTS FOR (r:Repository) REQUIRE r.path IS UNIQUE"
             )
