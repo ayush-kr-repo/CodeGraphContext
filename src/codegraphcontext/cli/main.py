@@ -1199,7 +1199,7 @@ def report(
     """
     _load_credentials()
     output_path = Path(output) if output else Path.cwd() / "CGC_REPORT.md"
-    db_manager, _, _ = _initialize_services(context)
+    db_manager, _, _, _ = _initialize_services(context)
     try:
         from codegraphcontext.tools.report_generator import generate_report
         report_text = generate_report(db_manager, output_path=output_path, include_java=java)

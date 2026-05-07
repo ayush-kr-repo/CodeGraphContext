@@ -171,7 +171,7 @@ def find_java_spring_endpoints(code_finder: CodeFinder, **args) -> Dict[str, Any
         params["path_pattern"] = path_pattern
 
     if repo_path:
-        conditions.append("fn.path STARTS WITH $repo_path")
+        conditions.append("fn.path CONTAINS $repo_path")
         params["repo_path"] = repo_path
 
     where_clause = " AND ".join(conditions)
@@ -207,7 +207,7 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         params["stereotype"] = stereotype.upper()
 
     if repo_path:
-        conditions.append("c.path STARTS WITH $repo_path")
+        conditions.append("c.path CONTAINS $repo_path")
         params["repo_path"] = repo_path
 
     where_clause = " AND ".join(conditions)
