@@ -51,7 +51,15 @@ def _load_tree_sitter_dependencies():
 
     try:
         from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
-        from tree_sitter_language_pack import get_language as imported_get_language
+        try:
+            from tree_sitter_language_pack import get_language as imported_get_language
+            # Test it immediately
+            test_lang = imported_get_language('python')
+            test_parser = ImportedParser()
+            test_parser.set_language(test_lang)
+        except (ImportError, Exception):
+            # Fallback to tree_sitter_languages
+            from tree_sitter_languages import get_language as imported_get_language
     except ImportError as e:
         _tree_sitter_import_error = e
         raise _missing_tree_sitter_error(e) from e
@@ -217,8 +225,20 @@ class TreeSitterManager:
         """
         _, parser_cls, _ = _load_tree_sitter_dependencies()
         language = self.get_language_safe(lang)
-        # In tree-sitter 0.25+, Parser takes language in constructor
-        parser = parser_cls(language)
+        
+        # Determine if we need to use set_language (older tree-sitter)
+        # In tree-sitter 0.22+, Parser takes language in constructor
+        # In older versions, it must be set via set_language()
+        try:
+            parser = parser_cls(language)
+            # Check if it actually worked by attempting a tiny parse
+            # If language wasn't set, this usually returns None or fails
+            if parser.parse(b"") is None:
+                raise TypeError("Language not set")
+        except (TypeError, ValueError, AttributeError):
+            parser = parser_cls()
+            parser.set_language(language)
+        
         return parser
     
     def is_language_available(self, lang: str) -> bool:
@@ -306,27 +326,36 @@ def execute_query(language: Language, query_string: str, node):
         ...     print(f'{name}: {node.type}')
     """
     try:
-        from tree_sitter import Query, QueryCursor
+        from tree_sitter import Query
+        try:
+            from tree_sitter import QueryCursor
+        except ImportError:
+            QueryCursor = None
     except ImportError as e:
         raise _missing_tree_sitter_error(e) from e
     
     try:
-        # Create query and cursor
-        query = Query(language, query_string)
-        cursor = QueryCursor(query)
+        # Create query - handle both old and new APIs
+        try:
+            # New API (0.22+)
+            query = Query(language, query_string)
+        except (TypeError, ValueError, AttributeError):
+            # Old API (< 0.22)
+            query = language.query(query_string)
         
-        # Execute query and convert to old format
-        captures = []
-        
-        # Use matches() which returns (pattern_index, captures_dict) tuples
-        for pattern_index, captures_dict in cursor.matches(node):
-            # captures_dict is {capture_name: [nodes]}
-            for capture_name, nodes in captures_dict.items():
-                for captured_node in nodes:
-                    # Old format: (node, capture_name)
-                    captures.append((captured_node, capture_name))
-        
-        return captures
+        try:
+            # New API (0.22+)
+            if QueryCursor is None: raise ImportError()
+            cursor = QueryCursor(query)
+            captures = []
+            for pattern_index, captures_dict in cursor.matches(node):
+                for capture_name, nodes in captures_dict.items():
+                    for captured_node in nodes:
+                        captures.append((captured_node, capture_name))
+            return captures
+        except (NameError, ImportError, AttributeError, TypeError):
+            # Old API (< 0.22)
+            return query.captures(node)
         
     except Exception as e:
         # Provide helpful error message
