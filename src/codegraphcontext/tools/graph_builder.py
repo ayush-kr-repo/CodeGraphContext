@@ -858,6 +858,10 @@ class GraphBuilder:
             if "error" not in file_data:
                 self.add_file_to_graph(file_data, repo_name, imports_map)
                 return file_data
+            if not file_data.get("unsupported"):
+                # Generic file type (.md, .yml, .json, etc.) — create a bare File node
+                self.add_minimal_file_node(path, repo_path)
+                return file_data
             error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
             return None
         return {"deleted": True, "path": file_path_str}
