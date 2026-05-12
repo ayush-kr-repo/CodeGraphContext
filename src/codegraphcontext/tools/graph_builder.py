@@ -963,11 +963,27 @@ class GraphBuilder:
         try:
             scip_enabled = (get_config_value("SCIP_INDEXER") or "false").lower() == "true"
             if scip_enabled:
-                from .scip_indexer import detect_project_lang, is_scip_available
+                from .scip_indexer import ScipIndexer, detect_project_lang, is_scip_available
 
                 scip_langs_str = get_config_value("SCIP_LANGUAGES") or "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp,php,ruby,kotlin,swift,elixir"
                 scip_languages = [l.strip() for l in scip_langs_str.split(",") if l.strip()]
                 detected_lang = detect_project_lang(path, scip_languages)
+
+                if (
+                    detected_lang in ("cpp", "c")
+                    and path.is_dir()
+                    and not ScipIndexer._find_compdb(path)
+                ):
+                    warning_logger(
+                        "[SCIP] C/C++ project detected but no compile_commands.json was found "
+                        f"(searched under {path.resolve()}). scip-clang needs a JSON compilation database "
+                        "listing real compiler invocations (include paths, -D defines, -std, etc.). "
+                        "Typical ways to create it: CMake with "
+                        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON, or run your build under "
+                        "Bear (https://github.com/rizsotto/Bear) (e.g. `bear -- make`). "
+                        "Without it, SCIP cannot index C/C++; CGC will fall back to Tree-sitter if SCIP fails. "
+                        'See README section "SCIP indexing (optional)".'
+                    )
 
                 if detected_lang and is_scip_available(detected_lang):
                     info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")

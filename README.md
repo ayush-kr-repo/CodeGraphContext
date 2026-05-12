@@ -75,6 +75,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 * [🛠️ CLI Toolkit](#for-cli-toolkit-mode) 
 * [🤖 MCP Server](#-for-mcp-server-mode) 
 * [🗄️ Database Options](#database-options)
+* [🔬 SCIP indexing (optional)](#scip-indexing-optional)
 
 ---
 
@@ -97,7 +98,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.4.7
+- **Version:** 0.4.8
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -166,6 +167,18 @@ CodeGraphContext supports multiple graph database backends to suit your environm
 | **Requirement**| `pip install kuzu` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
 | **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable |
 | **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) |
+
+---
+
+## SCIP indexing (optional)
+
+When `SCIP_INDEXER=true` in your CGC config (`~/.codegraphcontext/.env`), some languages use external **SCIP** indexers for more accurate calls and inheritance than Tree-sitter heuristics alone.
+
+**C and C++** use **scip-clang**, which requires a **`compile_commands.json`** file (a [JSON compilation database](https://clang.llvm.org/docs/JSONCompilationDatabase.html)): one entry per translation unit with the real compiler command (include paths, `-D` defines, `-std`, etc.). Without it, scip-clang cannot run; CGC logs a warning and **falls back to Tree-sitter** for that repo. Typical ways to produce the file: **CMake** with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, or wrap your real build with **[Bear](https://github.com/rizsotto/Bear)** (e.g. `bear -- make`). CGC also looks under `build/` and `cmake-build-*/` for that filename.
+
+**C#** uses **scip-dotnet** (Roslyn); you need a normal **`.csproj` / `.sln`** and a successful restore—no `compile_commands.json`.
+
+SCIP is **independent of which graph database** you use (Kuzu, Neo4j, etc.); the same flag applies to all backends.
 
 ---
 

@@ -1,6 +1,6 @@
 # System architecture
 
-CodeGraphContext (CGC) **0.4.7** is a **context-aware code intelligence engine** that connects your repository to AI tools through an exact **knowledge graph** (not embeddings-only). It runs primarily as an **MCP server** with a **CLI** for indexing and queries, and optional **visualization**.
+CodeGraphContext (CGC) **0.4.8** is a **context-aware code intelligence engine** that connects your repository to AI tools through an exact **knowledge graph** (not embeddings-only). It runs primarily as an **MCP server** with a **CLI** for indexing and queries, and optional **visualization**.
 
 ## High-level architecture
 

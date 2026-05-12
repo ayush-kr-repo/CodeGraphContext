@@ -183,7 +183,7 @@ class KuzuDBManager:
             ("Module", "full_import_name", "STRING"),
             ("IMPORTS", "full_import_name", "STRING"),
             ("IMPORTS", "imported_name", "STRING"),
-            # Freshness properties added to Repository in 0.4.7
+            # Freshness properties added to Repository in 0.4.8
             ("Repository", "indexed_at", "STRING"),
             ("Repository", "commit_hash", "STRING"),
             # Spring endpoint properties on Function

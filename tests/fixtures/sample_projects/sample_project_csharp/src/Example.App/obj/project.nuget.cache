@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "tQmPa2ptm88=",
+  "dgSpecHash": "6utRbwZxMAI=",
   "success": true,
-  "projectFilePath": "/src/Example.App.csproj",
+  "projectFilePath": "/src/src/Example.App/Example.App.csproj",
   "expectedPackageFiles": [
     "/root/.nuget/packages/microsoft.netcore.app.ref/6.0.36/microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
     "/root/.nuget/packages/microsoft.windowsdesktop.app.ref/6.0.36/microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
