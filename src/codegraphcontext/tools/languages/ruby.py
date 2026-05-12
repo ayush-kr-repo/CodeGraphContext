@@ -266,6 +266,7 @@ class RubyTreeSitterParser:
                     "line_number": func_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
+                    "class_context": class_context,
                     "lang": self.language_name,
                     "is_dependency": False,
                 }

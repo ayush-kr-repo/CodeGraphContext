@@ -187,7 +187,7 @@ class GoTreeSitterParser:
         return {
             "path": str(path),
             "functions": functions,
-            "classes": structs,
+            "structs": structs,
             "interfaces": interfaces,
             "variables": variables,
             "imports": imports,
