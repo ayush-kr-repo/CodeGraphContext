@@ -12,16 +12,16 @@ export class ContextManager {
     private readonly sidebar: SidebarControlPanel
   ) {}
 
-  public async initializeContext(): Promise<void> {
+  public async initializeContext(explicitMode?: string): Promise<void> {
     const config = vscode.workspace.getConfiguration("cgc");
-    const mode = config.get<string>("contextMode", "global");
+    const mode = explicitMode || config.get<string>("contextMode", "global");
 
     switch (mode) {
       case "global":
         await this.handleGlobalMode();
         break;
-      case "named":
-        await this.handleNamedMode();
+      case "shared":
+        await this.handleSharedMode();
         break;
       case "per-repo":
         await this.handlePerRepoMode();
@@ -30,13 +30,14 @@ export class ContextManager {
   }
 
   private async handleGlobalMode(): Promise<void> {
-    // In global mode, we don't override the repo path automatically
-    // The service will use the global database by default
+    // Tell the backend to reconnect to the global DB.
+    // The backend's switch_context handles "global" specially by using
+    // resolve_context() to find ~/.codegraphcontext/global/db/falkordb.
     await this.service.switchContext("global");
     await this.sidebar.refresh();
   }
 
-  private async handleNamedMode(): Promise<void> {
+  private async handleSharedMode(): Promise<void> {
     const activeContext = vscode.workspace.getConfiguration("cgc").get<string>("repoPath", "");
     if (!activeContext) {
       // Don't load anything, wait for user selection in sidebar
@@ -52,25 +53,23 @@ export class ContextManager {
 
     const rootPath = workspaceFolders[0].uri.fsPath;
 
-    // Tier 1: Immediate Match
     const rootCgcPath = path.join(rootPath, ".codegraphcontext");
-    if (fs.existsSync(rootCgcPath)) {
-      await vscode.workspace.getConfiguration("cgc").update("repoPath", rootPath, vscode.ConfigurationTarget.Workspace);
-      await this.service.switchContext(rootPath);
-      await this.sidebar.refresh();
-      return;
-    }
 
-    // Tier 2: Deep Child Discovery
-    const matches = await vscode.workspace.findFiles("**/.codegraphcontext/metadata.json", "**/node_modules/**", 10);
-    if (matches.length > 0) {
-      // Find the first one that isn't the root (which we already checked)
-      const bestMatchUri = matches.find(m => path.dirname(m.fsPath) !== rootCgcPath);
-      if (bestMatchUri) {
+    // Switch context to rootPath if it exists
+    await vscode.workspace.getConfiguration("cgc").update("repoPath", rootPath, vscode.ConfigurationTarget.Workspace);
+    if (fs.existsSync(rootCgcPath)) {
+      await this.service.switchContext(rootPath);
+    }
+    await this.sidebar.refresh();
+
+    // Deep Child Discovery (if root doesn't have it, but child does)
+    if (!fs.existsSync(rootCgcPath)) {
+      const matches = await vscode.workspace.findFiles("**/.codegraphcontext/metadata.json", "**/node_modules/**", 10);
+      if (matches.length > 0) {
+        const bestMatchUri = matches[0];
         const bestMatchPath = path.dirname(path.dirname(bestMatchUri.fsPath));
         this.lastRecommendedPath = bestMatchPath;
         
-        // Non-blocking notification
         vscode.window.showInformationMessage(
           `CGC: Found a local context in '${path.basename(bestMatchPath)}'. Would you like to connect?`,
           "Connect", "Ignore"

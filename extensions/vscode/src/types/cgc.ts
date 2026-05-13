@@ -79,6 +79,8 @@ export type CgcEventType =
   | "index:done"
   | "index:failed"
   | "graph:changed"
+  | "repo:changed"
+  | "context:changed"
   | "mcp:online"
   | "mcp:offline";
 

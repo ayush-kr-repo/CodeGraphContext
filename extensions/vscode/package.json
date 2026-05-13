@@ -23,7 +23,6 @@
     "onCommand:cgc.showClassHierarchy",
     "onCommand:cgc.generateReport",
     "onCommand:cgc.discoverContexts",
-    "onView:cgc-repos",
     "onView:cgc-bundles",
     "onView:cgc-control"
   ],
@@ -75,10 +74,6 @@
         "title": "CGC: Discover Sub-Project Contexts"
       },
       {
-        "command": "cgc.refreshExtension",
-        "title": "CGC: Refresh / Restart Extension"
-      },
-      {
         "command": "cgc.visualizeRepo",
         "title": "CGC: Visualize Entire Repo"
       }
@@ -127,10 +122,6 @@
           "id": "cgc-control",
           "name": "CGC Control Panel",
           "type": "webview"
-        },
-        {
-          "id": "cgc-repos",
-          "name": "Repositories"
         },
         {
           "id": "cgc-bundles",
@@ -189,8 +180,12 @@
         "cgc.contextMode": {
           "type": "string",
           "default": "global",
-          "enum": ["global", "per-repo", "named"],
-          "description": "CGC context mode: global, per-repo, or named workspace."
+          "enum": [
+            "global",
+            "per-repo",
+            "shared"
+          ],
+          "description": "CGC context mode: global, per-repo, or shared workspace."
         },
         "cgc.indexVariables": {
           "type": "boolean",

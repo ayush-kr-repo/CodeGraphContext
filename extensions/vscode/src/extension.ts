@@ -9,13 +9,12 @@ import {
   CgcDeadCodeDiagnostics,
   CgcHoverProvider,
 } from "./providers/editorProviders";
-import { BundlesTreeProvider, ReposTreeProvider } from "./views/explorerViews";
+import { BundlesTreeProvider } from "./views/explorerViews";
 import { SidebarControlPanel } from "./views/controlPanel";
 import { CgcStatusBarItem } from "./views/statusBarItem";
 import { CallGraphPanel } from "./webview/callGraphPanel";
 import { extractDeclarationSignature } from "./testing/parser";
 import { DashboardPanel } from "./webview/dashboardPanel";
-import { SetupPanel } from "./webview/setupPanel";
 import { ContextManager } from "./mcp/contextManager";
 
 function extractSymbolAtCursor(editor: vscode.TextEditor): string | undefined {
@@ -46,13 +45,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── UI providers ──────────────────────────────────────────────────────────
   const callGraphPanel = new CallGraphPanel(service);
-  const dashboardPanel = new DashboardPanel(service);
+  const dashboardPanel = new DashboardPanel(service, client);
   const sidebarControl = new SidebarControlPanel(service, client, context);
 
   const diagnostics = new CgcDeadCodeDiagnostics(service);
   const codeLensProvider = new CgcCodeLensProvider(service);
   const hoverProvider = new CgcHoverProvider(service);
-  const reposProvider = new ReposTreeProvider(service);
+
   const bundlesProvider = new BundlesTreeProvider(service);
   const contextManager = new ContextManager(service, sidebarControl);
 
@@ -91,7 +90,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       new CgcDeadCodeCodeActionProvider(),
       { providedCodeActionKinds: CgcDeadCodeCodeActionProvider.providedCodeActionKinds }
     ),
-    vscode.window.registerTreeDataProvider("cgc-repos", reposProvider),
+
     vscode.window.registerTreeDataProvider("cgc-bundles", bundlesProvider),
     vscode.window.registerWebviewViewProvider(SidebarControlPanel.viewType, sidebarControl),
     diagnostics,
@@ -108,6 +107,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.setStatusBarMessage(`CGC diagnostics error: ${String(err)}`, 4000);
     }
   };
+
+  // ─── Event Coordination ─────────────────────────────────────────────────────
+  const invalidateAll = () => {
+    codeLensProvider.invalidate();
+    refreshDiagnostics().catch(() => {});
+  };
+
+  cgcEvents.on("graph:changed", invalidateAll);
+  cgcEvents.on("index:done", invalidateAll);
+  cgcEvents.on("repo:changed", invalidateAll);
+  cgcEvents.on("context:changed", invalidateAll);
 
   // ── Commands ──────────────────────────────────────────────────────────────
   context.subscriptions.push(
@@ -158,21 +168,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await service.watchWorkspace(workspace);
         }
       );
-      reposProvider.refresh();
-      await sidebarControl.refresh();
+      cgcEvents.emit("graph:changed");
       await refreshDiagnostics();
-    }),
-
-    vscode.commands.registerCommand("cgc.refreshExtension", async () => {
-      client.dispose();
-      try {
-        await client.ensureStarted();
-        cgcEvents.emit("mcp:online");
-      } catch {
-        cgcEvents.emit("mcp:offline");
-      }
-      await sidebarControl.refresh();
-      vscode.window.showInformationMessage("CGC extension restarted.");
     }),
 
     vscode.commands.registerCommand("cgc.runIndexWizard", async () => {
@@ -188,12 +185,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await service.watchWorkspace(workspace);
       }
       vscode.window.showInformationMessage("CGC setup complete for this workspace.");
-      reposProvider.refresh();
-      await sidebarControl.refresh();
+      cgcEvents.emit("graph:changed");
     }),
 
     vscode.commands.registerCommand("cgc.openEngineConfig", () => {
-      SetupPanel.createOrShow(context, client);
+      vscode.commands.executeCommand("workbench.action.openSettings", "cgc");
     }),
 
     vscode.commands.registerCommand("cgc.runCypherQuery", async () => {
@@ -286,8 +282,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (picked?.description) {
         await service.switchContext(picked.description);
-        await sidebarControl.refresh();
-        reposProvider.refresh();
+        cgcEvents.emit("context:changed", { source: "command", contextPath: picked.description });
         vscode.window.showInformationMessage(`CGC context switched to: ${picked.label}`);
       }
     }),
@@ -354,20 +349,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     watcher.onDidCreate(async () => {
       cgcEvents.emit("graph:changed");
       dashboardPanel.notifyRefresh(".codegraphcontext created");
-      await dashboardPanel.refresh();
-      await sidebarControl.refresh();
     }),
 
     watcher.onDidChange(async () => {
       cgcEvents.emit("graph:changed");
       dashboardPanel.notifyRefresh(".codegraphcontext changed");
-      await dashboardPanel.refresh();
     }),
 
     watcher.onDidDelete(async () => {
       cgcEvents.emit("graph:changed");
       dashboardPanel.notifyRefresh(".codegraphcontext deleted");
-      await dashboardPanel.refresh();
     })
   );
 
