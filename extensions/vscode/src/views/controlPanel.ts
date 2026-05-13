@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { spawn } from "child_process";
 import { CgcService } from "../mcp/service";
 import { CgcMcpClient } from "../mcp/client";
+import { RepoStats } from "../types/cgc";
 
 export class SidebarControlPanel implements vscode.WebviewViewProvider {
   public static readonly viewType = "cgc-control";
@@ -31,23 +32,33 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
   private async render(): Promise<void> {
     if (!this.view) return;
 
-    const repos = await this.service.listRepositories().catch(() => []);
-    const watches = await this.service.listWatches().catch(() => []);
-    const hotspots = await this.service.getComplexityHotspots(10).catch(() => []);
+    const [repos, watches, hotspots, stats] = await Promise.all([
+      this.service.listRepositories().catch(() => []),
+      this.service.listWatches().catch(() => []),
+      this.service.getComplexityHotspots(10).catch(() => []),
+      this.service.getRepoStats().catch(() => ({} as RepoStats)),
+    ]);
     const cfg = vscode.workspace.getConfiguration("cgc");
 
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
     const selectedRepo = cfg.get<string>("repoPath", "") || (repos[0]?.path ?? "");
     const contextMode = cfg.get<string>("contextMode", "global");
 
+    let discoveredContexts: any[] = [];
+    if (contextMode === "named" || (contextMode === "per-repo" && !selectedRepo)) {
+      discoveredContexts = await this.service.discoverContexts(workspacePath);
+    }
+
     this.view.webview.html = this.buildHtml({
       repos,
       watches,
       hotspots,
+      stats,
       selectedRepo,
       contextMode,
       workspacePath,
-      cfg
+      cfg,
+      discoveredContexts
     });
   }
 
@@ -214,6 +225,30 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
           );
           break;
         }
+        case "find-importers": {
+          results = await this.service.findImporters(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "module-deps": {
+          results = await this.service.findModuleDeps(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "class-hierarchy": {
+          results = await this.service.findClassHierarchy(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "find-dead-code": {
+          results = await this.service.findDeadCode();
+          break;
+        }
+        case "variable-impact": {
+          results = await this.service.variableImpactRadius(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "find-by-decorator": {
+          results = await this.service.findFunctionsByDecorator(msg.target as string);
+          break;
+        }
       }
     } catch (err) {
       error = String(err);
@@ -226,12 +261,19 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
     repos: Array<{ repo_name?: string; path?: string }>;
     watches: string[];
     hotspots: Array<{ function_name?: string; cyclomatic_complexity?: number; path?: string }>;
+    stats: RepoStats;
     selectedRepo: string;
     contextMode: string;
     workspacePath: string;
     cfg: vscode.WorkspaceConfiguration;
+    discoveredContexts?: any[];
   }): string {
-    const { repos, watches, hotspots, selectedRepo, contextMode, workspacePath, cfg } = data;
+    const { repos, watches, hotspots, stats, selectedRepo, contextMode, workspacePath, cfg, discoveredContexts = [] } = data;
+    const fnCount = stats.function_count ?? stats.total_functions;
+    const clCount = stats.class_count ?? stats.total_classes;
+    const fileCount = stats.file_count ?? stats.total_files;
+    const statsStr = [fnCount !== undefined ? `${fnCount} fn` : null, clCount !== undefined ? `${clCount} cls` : null, fileCount !== undefined ? `${fileCount} files` : null].filter(Boolean).join(" · ") || "No index data";
+
 
     const repoOptions = [
       `<option value="">Auto (workspace)</option>`,
@@ -362,6 +404,27 @@ label.field-label:first-child{margin-top:0}
     <select id="repoSelect" onchange="changeRepo(this.value)">
       ${repoOptions}
     </select>
+
+    ${contextMode === "named" && !selectedRepo ? `
+      <div style="margin-top:12px;padding:10px;background:var(--vscode-editor-background);border:1px solid var(--vscode-focusBorder);border-radius:6px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px">Available Shared Contexts</div>
+        ${discoveredContexts.length ? discoveredContexts.map(c => `
+          <button class="btn btn-secondary" style="margin-top:4px" onclick="changeRepo('${esc(c.path)}')">📂 ${esc(c.name || c.path)}</button>
+        `).join("") : '<div class="empty-state">No named contexts found.</div>'}
+      </div>
+    ` : ""}
+
+    ${contextMode === "per-repo" && !selectedRepo && discoveredContexts.length ? `
+      <div style="margin-top:12px;padding:10px;background:var(--vscode-info-background);border:1px solid var(--vscode-widget-border);border-radius:6px;opacity:0.9">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.7">Recommendation</div>
+        <div style="font-size:11px;margin:4px 0">Found local context in sub-folder:</div>
+        <button class="btn btn-primary" onclick="changeRepo('${esc(discoveredContexts[0].path)}')">Connect to ${esc(discoveredContexts[0].name || "Sub-project")}</button>
+      </div>
+    ` : ""}
+
+    <div style="margin-top:8px;padding:6px 8px;background:var(--vscode-editor-background);border-radius:5px;border:1px solid var(--vscode-widget-border);font-size:11px;color:var(--vscode-descriptionForeground)" title="Indexed entity counts">
+      📊 ${esc(statsStr)}
+    </div>
   </div>
 </div>
 
@@ -506,6 +569,86 @@ label.field-label:first-child{margin-top:0}
       </div>
     </div>
 
+    <!-- Find importers of -->
+    <div class="query-card" id="qc-find-importers" onclick="selectQuery('find-importers')">
+      <div class="query-title">Find importers of <span class="badge badge-yellow">module</span></div>
+      <div class="query-desc">Who imports this module/file?</div>
+      <div class="query-form" id="qf-find-importers">
+        <label class="field-label">Module or file name</label>
+        <div class="input-row">
+          <input type="text" id="qi-importers-target" placeholder="e.g. utils or requests">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-importers-target')">📍</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Module dependencies -->
+    <div class="query-card" id="qc-module-deps" onclick="selectQuery('module-deps')">
+      <div class="query-title">Module dependencies of <span class="badge badge-yellow">module</span></div>
+      <div class="query-desc">What does this module depend on?</div>
+      <div class="query-form" id="qf-module-deps">
+        <label class="field-label">Module name</label>
+        <div class="input-row">
+          <input type="text" id="qi-moddeps-target" placeholder="e.g. myapp.utils">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-moddeps-target')">📍</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Class hierarchy -->
+    <div class="query-card" id="qc-class-hierarchy" onclick="selectQuery('class-hierarchy')">
+      <div class="query-title">Class hierarchy of <span class="badge badge-yellow">class</span></div>
+      <div class="query-desc">Show inheritance tree for a class</div>
+      <div class="query-form" id="qf-class-hierarchy">
+        <label class="field-label">Class name</label>
+        <div class="input-row">
+          <input type="text" id="qi-classhier-target" placeholder="e.g. BaseModel">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-classhier-target')">📍</button>
+        </div>
+        <label class="field-label">File path (optional)</label>
+        <div class="input-row">
+          <input type="text" id="qi-classhier-file" placeholder="/path/to/file.py">
+          <button class="btn btn-icon" onclick="useActiveFile(event,'qi-classhier-file')">📄</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Variable impact radius -->
+    <div class="query-card" id="qc-variable-impact" onclick="selectQuery('variable-impact')">
+      <div class="query-title">Variable impact radius of <span class="badge badge-yellow">var</span></div>
+      <div class="query-desc">Where is this variable used?</div>
+      <div class="query-form" id="qf-variable-impact">
+        <label class="field-label">Variable name</label>
+        <div class="input-row">
+          <input type="text" id="qi-varimp-target" placeholder="e.g. db_connection">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-varimp-target')">📍</button>
+        </div>
+        <label class="field-label">File path (optional)</label>
+        <div class="input-row">
+          <input type="text" id="qi-varimp-file" placeholder="/path/to/file.py">
+          <button class="btn btn-icon" onclick="useActiveFile(event,'qi-varimp-file')">📄</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Find by decorator -->
+    <div class="query-card" id="qc-find-by-decorator" onclick="selectQuery('find-by-decorator')">
+      <div class="query-title">Functions by decorator <span class="badge badge-yellow">@</span></div>
+      <div class="query-desc">Find all functions with a specific decorator</div>
+      <div class="query-form" id="qf-find-by-decorator">
+        <label class="field-label">Decorator name (without @)</label>
+        <div class="input-row">
+          <input type="text" id="qi-decorator-target" placeholder="e.g. app.route or property">
+        </div>
+      </div>
+    </div>
+
+    <!-- Dead code repo-wide -->
+    <div class="query-card" id="qc-find-dead-code" onclick="selectQuery('find-dead-code')">
+      <div class="query-title">Find dead code (repo-wide)</div>
+      <div class="query-desc">List potentially unused functions across the entire repo</div>
+    </div>
+
     <button class="btn btn-primary" id="runQueryBtn" onclick="runQuery()" style="display:none">▶ Run Query</button>
     <div id="queryResult" class="result-box" style="display:none"></div>
   </div>
@@ -610,7 +753,20 @@ function runQuery() {
     msg.to       = v('qi-chain-to');
     msg.fromFile = v('qi-chain-from-file');
     msg.toFile   = v('qi-chain-to-file');
+  } else if (activeQuery === 'find-importers') {
+    msg.target = v('qi-importers-target');
+  } else if (activeQuery === 'module-deps') {
+    msg.target = v('qi-moddeps-target');
+  } else if (activeQuery === 'class-hierarchy') {
+    msg.target = v('qi-classhier-target');
+    msg.file   = v('qi-classhier-file');
+  } else if (activeQuery === 'variable-impact') {
+    msg.target = v('qi-varimp-target');
+    msg.file   = v('qi-varimp-file');
+  } else if (activeQuery === 'find-by-decorator') {
+    msg.target = v('qi-decorator-target');
   }
+  // find-dead-code and list-functions/list-classes have no inputs
   vscode.postMessage(msg);
 }
 
