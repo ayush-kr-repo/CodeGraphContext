@@ -1,9 +1,9 @@
 module Main where
 
-hello :: String -> IO ()
-hello name = putStrLn ("Hello, " ++ name)
-
-data Person = Person { name :: String, age :: Int }
+import Types
+import Utils
 
 main :: IO ()
-main = hello "World"
+main = do
+    let p = Person "CGC User" 30
+    putStrLn $ formatGreeting p
