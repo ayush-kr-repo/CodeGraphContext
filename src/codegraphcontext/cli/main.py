@@ -2574,6 +2574,10 @@ def main(
     if version_:
         console.print(f"CodeGraphContext [bold cyan]{get_version()}[/bold cyan]")
         raise typer.Exit()
+    
+    if help_:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
     if ctx.invoked_subcommand is None:
         console.print("[bold green]👋 Welcome to CodeGraphContext (cgc)![/bold green]\n")
