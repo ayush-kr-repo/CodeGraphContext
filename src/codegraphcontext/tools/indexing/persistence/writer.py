@@ -617,31 +617,42 @@ class GraphWriter:
                     if is_interface or (base_index > 0 and type_label == "Class"):
                         # Split by label for Kuzu binder
                         for clab in ("Class", "Struct", "Record", "Mixin", "Extension"):
-                            session.run(
-                                f"""
-                                MATCH (child:`{clab}` {{name: $child_name, path: $path}})
-                                MATCH (iface:Interface {{name: $interface_name}})
-                                MERGE (child)-[:IMPLEMENTS]->(iface)
-                            """,
-                                child_name=type_item["name"],
-                                path=caller_file_path,
-                                interface_name=base_name,
-                            )
+                            try:
+                                session.run(
+                                    f"""
+                                    MATCH (child:`{clab}` {{name: $child_name, path: $path}})
+                                    MATCH (iface:Interface {{name: $interface_name}})
+                                    MERGE (child)-[:IMPLEMENTS]->(iface)
+                                """,
+                                    child_name=type_item["name"],
+                                    path=caller_file_path,
+                                    interface_name=base_name,
+                                )
+                            except Exception as e:
+                                if "Binder exception" in str(e) or "binder exception" in str(e).lower():
+                                    continue
+                                raise e
                     else:
                         child_labels = ("Class", "Record", "Interface", "Mixin", "Extension")
                         parent_labels = ("Class", "Record", "Interface", "Mixin", "Extension")
                         for clab in child_labels:
                             for plab in parent_labels:
-                                session.run(
-                                    f"""
-                                    MATCH (child:`{clab}` {{name: $child_name, path: $path}})
-                                    MATCH (parent:`{plab}` {{name: $parent_name}})
-                                    MERGE (child)-[:INHERITS]->(parent)
-                                """,
-                                    child_name=type_item["name"],
-                                    path=caller_file_path,
-                                    parent_name=base_name,
-                                )
+                                try:
+                                    session.run(
+                                        f"""
+                                        MATCH (child:`{clab}` {{name: $child_name, path: $path}})
+                                        MATCH (parent:`{plab}` {{name: $parent_name}})
+                                        MERGE (child)-[:INHERITS]->(parent)
+                                    """,
+                                        child_name=type_item["name"],
+                                        path=caller_file_path,
+                                        parent_name=base_name,
+                                    )
+                                except Exception as e:
+                                    if "Binder exception" in str(e) or "binder exception" in str(e).lower():
+                                        continue
+                                    raise e
+
 
     def write_inheritance_links(
         self,

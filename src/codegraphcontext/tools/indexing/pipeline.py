@@ -52,29 +52,49 @@ async def run_tree_sitter_index_async(
     resolved_repo_path_str = str(path.resolve()) if path.is_dir() else str(path.parent.resolve())
 
     processed_count = 0
-    for file in files:
-        if not file.is_file():
-            continue
-        if job_id:
-            job_manager.update_job(job_id, current_file=str(file))
-        repo_path = path.resolve() if path.is_dir() else file.parent.resolve()
-        file_data = parse_file(repo_path, file, is_dependency)
-        if "error" not in file_data:
-            writer.add_file_to_graph(file_data, repo_name, imports_map, repo_path_str=resolved_repo_path_str)
-            all_file_data.append(file_data)
-        elif not file_data.get("unsupported"):
-            add_minimal_file_node(file, repo_path, is_dependency)
-        processed_count += 1
+    concurrency_limit = 10
+    semaphore = asyncio.Semaphore(concurrency_limit)
+    
+    async def process_file(file: Path) -> Optional[Dict[str, Any]]:
+        nonlocal processed_count
+        async with semaphore:
+            if not file.is_file():
+                return None
+            
+            if job_id:
+                job_manager.update_job(job_id, current_file=str(file))
+            
+            repo_path = path.resolve() if path.is_dir() else file.parent.resolve()
+            
+            # 1. Parse file (CPU bound, run in thread)
+            file_data = await asyncio.to_thread(parse_file, repo_path, file, is_dependency)
+            
+            # 2. Write to graph (I/O bound, run in thread)
+            if "error" not in file_data:
+                await asyncio.to_thread(
+                    writer.add_file_to_graph, 
+                    file_data, repo_name, imports_map, 
+                    repo_path_str=resolved_repo_path_str
+                )
+                return file_data
+            elif not file_data.get("unsupported"):
+                await asyncio.to_thread(add_minimal_file_node, file, repo_path, is_dependency)
+            
+            return None
 
+    # Process all files in parallel with the semaphore limit
+    tasks = [process_file(f) for f in files]
+    for coro in asyncio.as_completed(tasks):
+        file_data = await coro
+        if file_data:
+            all_file_data.append(file_data)
+        
+        processed_count += 1
         if job_id:
             job_manager.update_job(job_id, processed_files=processed_count)
+        
         if processed_count % 50 == 0:
-            # Cooperative yield between files.  add_file_to_graph() has already
-            # returned at this point, so all KùzuDB writes for the current file
-            # are complete.  Concurrent tool-handler threads (via asyncio.to_thread)
-            # that call session.run() will safely block on KuzuSessionWrapper._query_lock
-            # rather than racing on the shared Connection.
-            await asyncio.sleep(0)
+            info_logger(f"Processed {processed_count}/{len(files)} files...")
 
     info_logger(
         f"File processing complete. {len(all_file_data)} files parsed. "

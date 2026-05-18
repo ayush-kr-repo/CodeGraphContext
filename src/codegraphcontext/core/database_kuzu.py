@@ -21,11 +21,10 @@ class KuzuDBManager:
     """
     _instance = None
     _db = None
-    _conn = None
+    _pool = None
     _lock = threading.Lock()         # Guards singleton initialisation only.
-    _query_lock = threading.RLock()  # Serialises every conn.execute() call.
-    # RLock (reentrant) is required because KuzuSessionWrapper.run() calls
-    # itself recursively when triggering the UNWIND fallback path.
+    _write_lock = threading.RLock()  # Serialises every write query (reentrant for fallback).
+    _query_lock = threading.RLock()  # Kept for backward compat / legacy wrappers if any.
 
     def __new__(cls, *args, **kwargs):
         """Standard singleton pattern implementation."""
@@ -65,36 +64,50 @@ class KuzuDBManager:
 
     def get_driver(self):
         """
-        Gets the KùzuDB connection. Retries on file-lock errors.
+        Gets the KùzuDB driver. Initialises the database and connection pool.
         """
-        if self._conn is None:
+        if self._db is None:
             with self._lock:
-                if self._conn is None:
+                if self._db is None:
                     import kuzu
+                    import queue
                     max_retries = 5
                     for attempt in range(max_retries):
                         try:
                             info_logger(f"Initializing KùzuDB at {self.db_path}")
                             self._db = kuzu.Database(self.db_path)
-                            self._conn = kuzu.Connection(self._db)
-                            self._initialize_schema()
+                            
+                            # Initialise connection pool
+                            self._pool = queue.Queue()
+                            # Start with 10 connections in the pool
+                            for _ in range(10):
+                                self._pool.put(kuzu.Connection(self._db))
+                            
+                            # Use one connection from the pool to initialise schema
+                            temp_conn = self._pool.get()
+                            try:
+                                self._conn = temp_conn # Temporary assignment for _initialize_schema
+                                self._initialize_schema()
+                                self._conn = None
+                            finally:
+                                self._pool.put(temp_conn)
+
                             info_logger("KùzuDB connection established and schema verified")
                             break
                         except ImportError:
                             error_logger("KùzuDB is not installed. Run 'pip install kuzu'")
-                            raise ValueError("KùzuDB missing.")
+                            raise ValueError("KùzuDB core missing.")
                         except Exception as e:
                             if "lock" in str(e).lower() and attempt < max_retries - 1:
                                 wait = 0.5 * (2 ** attempt)
                                 warning_logger(f"KùzuDB lock contention, retrying in {wait:.1f}s ({attempt+1}/{max_retries})...")
                                 self._db = None
-                                self._conn = None
                                 time.sleep(wait)
                             else:
                                 error_logger(f"Failed to initialize KùzuDB: {e}")
                                 raise
 
-        return KuzuDriverWrapper(self._conn, self._query_lock)
+        return KuzuDriverWrapper(self._db, self._pool, self._write_lock)
 
     def _initialize_schema(self):
         """Creates Node and Rel tables if they don't exist."""
@@ -279,20 +292,29 @@ class KuzuDBManager:
                 raise RuntimeError("Kuzu Schema Migration Failed") from e
 
     def close_driver(self):
-        """Closes the connection."""
-        if self._conn is not None:
-            info_logger("Closing KùzuDB connection")
-            self._conn = None
+        """Closes the connection pool."""
+        if self._db is not None:
+            info_logger("Closing KùzuDB connection pool")
+            # Clear the pool
+            while not self._pool.empty():
+                try:
+                    self._pool.get_nowait()
+                except:
+                    break
             self._db = None
 
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""
-        if self._conn is None:
+        if self._db is None:
             return False
         try:
-            with self._query_lock:
-                self._conn.execute("RETURN 1")
-            return True
+            # Borrow a connection to test
+            conn = self._pool.get(timeout=1.0)
+            try:
+                conn.execute("RETURN 1")
+                return True
+            finally:
+                self._pool.put(conn)
         except Exception:
             return False
     
@@ -315,24 +337,47 @@ class KuzuDBManager:
             return True, None
         except ImportError:
             return False, "KùzuDB is not installed. Run 'pip install kuzu'"
-
 class KuzuDriverWrapper:
-    def __init__(self, conn, query_lock: Optional[threading.RLock] = None):
-        self.conn = conn
-        self._query_lock = query_lock or threading.RLock()
+    def __init__(self, db, pool_or_lock, write_lock=None):
+        self.db = db
+        if hasattr(pool_or_lock, "acquire"):
+            self._pool = None
+            self._write_lock = pool_or_lock
+            self._query_lock = pool_or_lock
+        else:
+            self._pool = pool_or_lock
+            self._write_lock = write_lock or threading.Lock()
+            self._query_lock = self._write_lock
     def session(self, **kwargs):
         """Accepts and ignores Neo4j-specific kwargs (e.g. default_access_mode)."""
-        return KuzuSessionWrapper(self.conn, self._query_lock)
+        pool = getattr(self, "_pool", None)
+        if pool is not None:
+            return KuzuSessionWrapper(pool, getattr(self, "_write_lock", None))
+        else:
+            db = getattr(self, "db", None) or getattr(self, "conn", None)
+            write_lock = getattr(self, "_write_lock", None) or getattr(self, "_query_lock", None)
+            return KuzuSessionWrapper(db, write_lock)
     def close(self):
         pass
 
+
 class KuzuSessionWrapper:
-    def __init__(self, conn, query_lock: Optional[threading.RLock] = None):
-        self.conn = conn
-        self._query_lock = query_lock or threading.RLock()
+    def __init__(self, pool_or_conn, write_lock=None):
+        self._write_lock = write_lock or threading.Lock()
+        self._query_lock = self._write_lock
         self._disabled_query_types = set()
         self._logged_disabled_query_types = set()
         self._state_lock = threading.Lock()
+        
+        # Backward compatibility check: check if it's a pool or connection
+        if hasattr(pool_or_conn, "get") and not hasattr(pool_or_conn, "execute"):
+            self._pool = pool_or_conn
+            self.conn = self._pool.get()
+        else:
+            self._pool = None
+            self.conn = pool_or_conn
+
+
         self.uid_map = {
             'Function': ['name', 'path', 'line_number'],
             'Class': ['name', 'path', 'line_number'],
@@ -354,9 +399,11 @@ class KuzuSessionWrapper:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit context manager - KùzuDB auto-commits, so nothing to do here."""
-        # KùzuDB uses auto-commit, no explicit commit needed
+        """Exit context manager - Return connection to the pool."""
+        if self.conn and self._pool is not None:
+            self._pool.put(self.conn)
         return False  # Don't suppress exceptions
+
 
     @staticmethod
     def _sanitize_value(v):
@@ -408,6 +455,13 @@ class KuzuSessionWrapper:
             return "inheritance_resolution"
         if "CALLS" in query:
             return "calls_resolution"
+            
+        # Write query detection
+        query_upper = query.upper()
+        write_keywords = {"MERGE", "CREATE", "SET", "DELETE", "REMOVE", "DROP", "ALTER", "COPY"}
+        if any(k in query_upper for k in write_keywords):
+            return "write"
+            
         return "generic"
 
     def _is_query_type_disabled(self, query_type: str) -> bool:
@@ -466,14 +520,16 @@ class KuzuSessionWrapper:
         translated_query, translated_params = self._translate_query(query, parameters)
         debug_log(f"Translated Query: {translated_query[:200]}")
         try:
-            # Acquire the query lock before touching the connection.
-            # KùzuDB's Connection is not thread-safe; without this lock, concurrent
-            # calls from asyncio.to_thread tool handlers and the background indexing
-            # coroutine would race on the same conn.execute(), causing C++ crashes
-            # or silent graph corruption. RLock is used so the UNWIND fallback below
-            # can call self.run() recursively from the same thread without deadlocking.
-            with self._query_lock:
+            # 2. Execute with appropriate locking
+            # Only write queries need the global lock. Read-only queries can execute concurrently.
+            if query_type == "write":
+                with self._write_lock:
+                    result = self.conn.execute(translated_query, translated_params)
+            else:
                 result = self.conn.execute(translated_query, translated_params)
+
+
+                
             return KuzuResultWrapper(result)
         except Exception as e:
             if self._should_fail_fast(query_type, e):
@@ -510,8 +566,15 @@ class KuzuSessionWrapper:
                                 loop_params[f"{row_var}_{p}"] = item.get(p)
                             if "uid" in item:
                                 loop_params[f"{row_var}_uid"] = item["uid"]
-                            last_result = self.run(loop_query, **loop_params)
+                            try:
+                                last_result = self.run(loop_query, **loop_params)
+                            except Exception as nested_e:
+                                nested_err_str = str(nested_e)
+                                if "Binder exception" in nested_err_str or "binder exception" in nested_err_str.lower():
+                                    continue
+                                raise nested_e
                         return last_result or KuzuResultWrapper(None)
+
 
             error_logger(f"Kuzu Query failed: {query[:100]}... Error: {e}")
             debug_log(f"Kuzu Query failed: {query[:100]}... Error: {e}")
@@ -942,8 +1005,6 @@ class KuzuSessionWrapper:
 
         return query, parameters
 
-    def __enter__(self): return self
-    def __exit__(self, exc_type, exc_val, exc_tb): pass
 
 class KuzuRecord:
     def __init__(self, data_dict):

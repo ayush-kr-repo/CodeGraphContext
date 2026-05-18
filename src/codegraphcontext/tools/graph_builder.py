@@ -79,22 +79,26 @@ class GraphBuilder:
             "Dockerfile", "Makefile"
         }
         
-        self._parsed_cache = {}
+        import threading
+        self._parsed_cache = threading.local()
         self.create_schema()
 
     def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
-        """Gets or creates a TreeSitterParser for the given extension."""
+        """Gets or creates a TreeSitterParser for the given extension (thread-local)."""
         lang_name = self.parsers.get(extension)
         if not lang_name:
             return None
 
-        if lang_name not in self._parsed_cache:
+        if not hasattr(self._parsed_cache, 'parsers'):
+            self._parsed_cache.parsers = {}
+
+        if lang_name not in self._parsed_cache.parsers:
             try:
-                self._parsed_cache[lang_name] = TreeSitterParser(lang_name)
+                self._parsed_cache.parsers[lang_name] = TreeSitterParser(lang_name)
             except Exception as e:
                 warning_logger(f"Failed to initialize parser for {lang_name}: {e}")
                 return None
-        return self._parsed_cache[lang_name]
+        return self._parsed_cache.parsers[lang_name]
 
     def create_schema(self) -> None:
         create_graph_schema(self.driver, self.db_manager)

@@ -1,7 +1,7 @@
 """
 Tests for KùzuDB thread-safety: verifies that KuzuDriverWrapper and
-KuzuSessionWrapper correctly serialise all conn.execute() calls through
-KuzuDBManager._query_lock (an RLock).
+KuzuSessionWrapper correctly serialise write conn.execute() calls through
+_write_lock and support concurrent pool-based reads.
 
 These tests use MagicMock to stand in for the real kuzu.Connection so the
 suite runs without the optional kuzu package installed.
@@ -11,6 +11,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+import queue
 
 # ---------------------------------------------------------------------------
 # Import the wrappers directly (no kuzu needed for these classes).
@@ -27,7 +28,7 @@ from codegraphcontext.core.database_kuzu import (
 # ---------------------------------------------------------------------------
 
 def _make_session(conn=None, lock=None):
-    """Return a KuzuSessionWrapper with a fresh RLock and optional mock conn."""
+    """Return a KuzuSessionWrapper with a fresh Lock/RLock and optional mock conn."""
     if conn is None:
         conn = MagicMock()
         conn.execute.return_value = MagicMock()  # non-None → KuzuResultWrapper wraps it
@@ -37,77 +38,96 @@ def _make_session(conn=None, lock=None):
 
 
 # ---------------------------------------------------------------------------
-# 1. Lock plumbing: KuzuDBManager._query_lock flows through to the session
+# 1. Lock plumbing: _write_lock flows through to the session
 # ---------------------------------------------------------------------------
 
 class TestLockPlumbing:
-    def test_driver_wrapper_accepts_query_lock(self):
-        """KuzuDriverWrapper must store and forward the query_lock to sessions."""
+    def test_driver_wrapper_accepts_write_lock_compat(self):
+        """KuzuDriverWrapper must accept a single lock for backward compatibility."""
         conn = MagicMock()
         lock = threading.RLock()
         wrapper = KuzuDriverWrapper(conn, lock)
 
-        assert wrapper._query_lock is lock
+        assert wrapper._write_lock is lock
+        assert wrapper._pool is None
 
-    def test_session_receives_same_lock(self):
-        """session() must pass the exact same lock object to KuzuSessionWrapper."""
+    def test_driver_wrapper_accepts_pool_and_lock(self):
+        """KuzuDriverWrapper must store pool and write_lock and forward them to sessions."""
+        db = MagicMock()
+        pool = queue.Queue()
         conn = MagicMock()
+        pool.put(conn)
         lock = threading.RLock()
-        driver = KuzuDriverWrapper(conn, lock)
-        session = driver.session()
+        driver = KuzuDriverWrapper(db, pool, lock)
 
+        assert driver._pool is pool
+        assert driver._write_lock is lock
+
+        session = driver.session()
         assert isinstance(session, KuzuSessionWrapper)
-        assert session._query_lock is lock
+        assert session._write_lock is lock
+        assert session.conn is conn
 
 
 # ---------------------------------------------------------------------------
-# 2. Lock is held during conn.execute()
+# 2. Lock is held during write conn.execute(), but not read conn.execute()
 # ---------------------------------------------------------------------------
 
 class TestLockHeldDuringExecute:
-    def test_lock_acquired_before_execute(self):
-        """conn.execute() must only be called while the _query_lock is held."""
+    def test_lock_acquired_before_write_execute(self):
+        """conn.execute() must only be called while the _write_lock is held for writes."""
         lock = threading.RLock()
         acquired_during_execute = []
 
         conn = MagicMock()
         def fake_execute(query, params):
-            # If the lock is NOT held by the current thread, try_acquire succeeds
-            # (meaning it was NOT already held) — that would be a bug.
-            # RLock.acquire(blocking=False) returns False when another thread
-            # holds it, but returns True (and re-enters) when the same thread holds it.
-            # We use a separate threading.Lock() sentinel to detect whether
-            # the RLock is currently held by *any* thread.
             acquired_during_execute.append(lock._is_owned())  # CPython internal
             return MagicMock()
 
         conn.execute.side_effect = fake_execute
 
         session, _, _ = _make_session(conn=conn, lock=lock)
-        session.run("RETURN 1")
+        session.run("MERGE (n:Class {uid: '1'})")
 
         assert acquired_during_execute, "execute() was never called"
-        assert all(acquired_during_execute), "Lock was not held during conn.execute()"
+        assert all(acquired_during_execute), "Lock was not held during write conn.execute()"
 
-    def test_lock_released_after_execute(self):
-        """The _query_lock must be released after run() returns normally."""
+    def test_lock_not_acquired_during_read_execute(self):
+        """conn.execute() must NOT acquire the _write_lock for read-only queries."""
+        lock = threading.RLock()
+        acquired_during_execute = []
+
+        conn = MagicMock()
+        def fake_execute(query, params):
+            acquired_during_execute.append(lock._is_owned())
+            return MagicMock()
+
+        conn.execute.side_effect = fake_execute
+
+        session, _, _ = _make_session(conn=conn, lock=lock)
+        session.run("MATCH (n:Class) RETURN n")
+
+        assert acquired_during_execute, "execute() was never called"
+        assert not any(acquired_during_execute), "Lock was incorrectly held during read conn.execute()"
+
+    def test_lock_released_after_write_execute(self):
+        """The _write_lock must be released after run() on a write query returns normally."""
         session, conn, lock = _make_session()
         conn.execute.return_value = MagicMock()
 
-        session.run("RETURN 1")
+        session.run("MERGE (n:Class {uid: '1'})")
 
-        # After run(), a different thread must be able to acquire the lock immediately.
         acquired = lock.acquire(blocking=False)
         assert acquired, "Lock was not released after run() completed"
         lock.release()
 
-    def test_lock_released_after_execute_exception(self):
-        """The _query_lock must be released even when conn.execute() raises."""
+    def test_lock_released_after_write_exception(self):
+        """The _write_lock must be released even when write execution raises an exception."""
         session, conn, lock = _make_session()
         conn.execute.side_effect = RuntimeError("boom")
 
         with pytest.raises(RuntimeError, match="boom"):
-            session.run("RETURN 1")
+            session.run("MERGE (n:Class {uid: '1'})")
 
         acquired = lock.acquire(blocking=False)
         assert acquired, "Lock was not released after conn.execute() raised"
@@ -115,21 +135,39 @@ class TestLockHeldDuringExecute:
 
 
 # ---------------------------------------------------------------------------
-# 3. Concurrent access is serialised (no interleaving)
+# 3. Pooled connections are returned on exit
+# ---------------------------------------------------------------------------
+
+class TestPoolReturnOnExit:
+    def test_session_wrapper_returns_connection_to_pool(self):
+        """KuzuSessionWrapper must return the connection to the pool on __exit__."""
+        pool = queue.Queue()
+        conn = MagicMock()
+        pool.put(conn)
+        lock = threading.Lock()
+
+        assert pool.qsize() == 1
+
+        with KuzuSessionWrapper(pool, lock) as session:
+            assert session.conn is conn
+            assert pool.qsize() == 0
+
+        assert pool.qsize() == 1
+
+
+# ---------------------------------------------------------------------------
+# 4. Concurrent access is serialised for writes, parallel for reads
 # ---------------------------------------------------------------------------
 
 class TestConcurrentAccessSerialization:
-    def test_concurrent_run_calls_are_serialised(self):
+    def test_concurrent_write_calls_are_serialised(self):
         """
-        Two threads calling session.run() on the SAME session (sharing the lock)
-        must never execute conn.execute() concurrently.
-
-        Strategy: record a timeline of (thread_id, event) pairs from inside
-        fake_execute and verify the two threads never overlap.
+        Two threads calling session.run() with a write query must never execute
+        conn.execute() concurrently.
         """
         lock = threading.RLock()
         timeline = []
-        timeline_lock = threading.Lock()  # protects the timeline list itself
+        timeline_lock = threading.Lock()
 
         conn = MagicMock()
 
@@ -137,7 +175,7 @@ class TestConcurrentAccessSerialization:
             tid = threading.current_thread().ident
             with timeline_lock:
                 timeline.append((tid, "start"))
-            time.sleep(0.01)  # hold long enough for other thread to try
+            time.sleep(0.01)
             with timeline_lock:
                 timeline.append((tid, "end"))
             return MagicMock()
@@ -150,7 +188,7 @@ class TestConcurrentAccessSerialization:
 
         def worker():
             try:
-                session.run("RETURN 1")
+                session.run("MERGE (n:Class {uid: '1'})")
             except Exception as exc:
                 errors.append(exc)
 
@@ -164,37 +202,17 @@ class TestConcurrentAccessSerialization:
         assert not errors, f"Threads raised: {errors}"
         assert len(timeline) == 4, f"Unexpected timeline: {timeline}"
 
-        # Verify the pattern is start/end/start/end — never two consecutive starts
-        # from different threads (which would indicate overlap).
         events = [e for _, e in timeline]
         tids = [t for t, _ in timeline]
 
         for i in range(0, 4, 2):
             assert events[i] == "start"
             assert events[i + 1] == "end"
-            assert tids[i] == tids[i + 1], (
-                f"Different threads interleaved: thread {tids[i]} started but "
-                f"thread {tids[i+1]} ended before it"
-            )
-
-    def test_two_sessions_share_same_lock(self):
-        """
-        Two KuzuSessionWrapper objects created from the same driver must share
-        the same _query_lock, so they serialise against each other.
-        """
-        conn = MagicMock()
-        conn.execute.return_value = MagicMock()
-        lock = threading.RLock()
-        driver = KuzuDriverWrapper(conn, lock)
-
-        s1 = driver.session()
-        s2 = driver.session()
-
-        assert s1._query_lock is s2._query_lock
+            assert tids[i] == tids[i + 1]
 
 
 # ---------------------------------------------------------------------------
-# 4. RLock reentrance: UNWIND fallback self.run() doesn't deadlock
+# 5. RLock reentrance: UNWIND fallback self.run() doesn't deadlock
 # ---------------------------------------------------------------------------
 
 class TestRLockReentrance:
@@ -211,7 +229,6 @@ class TestRLockReentrance:
         def fake_execute(query, params):
             call_count[0] += 1
             if call_count[0] == 1:
-                # Simulate the unordered_map::at error to trigger fallback
                 raise Exception("unordered_map::at")
             return MagicMock()
 
@@ -219,20 +236,16 @@ class TestRLockReentrance:
 
         session, _, _ = _make_session(conn=conn, lock=lock)
 
-        # Construct a minimal UNWIND query with a batch parameter so the
-        # fallback path activates.
         query = "UNWIND $batch AS row MERGE (n:Function {name: row.name, path: $fp, line_number: row.line_number}) SET n.source = row.source"
         batch = [{"name": "fn", "line_number": 1, "source": "def fn(): pass"}]
 
-        # Must complete without deadlock within the timeout imposed by pytest.
         result = session.run(query, batch=batch, fp="/a/b.py")
 
-        # Fallback executed at least the per-item row call
         assert call_count[0] >= 2
 
 
 # ---------------------------------------------------------------------------
-# 5. "already exists" changes: debug_log instead of silent return
+# 6. "already exists" changes: debug_log instead of silent return
 # ---------------------------------------------------------------------------
 
 class TestAlreadyExistsLogging:
@@ -264,22 +277,3 @@ class TestAlreadyExistsLogging:
 
         with pytest.raises(Exception, match="Syntax error"):
             session.run("MATCH BLAH")
-
-
-# ---------------------------------------------------------------------------
-# 6. KuzuDBManager._query_lock is an RLock at the class level
-# ---------------------------------------------------------------------------
-
-class TestManagerQueryLock:
-    def test_manager_has_rlock(self):
-        """KuzuDBManager._query_lock must be a threading.RLock (reentrant)."""
-        from codegraphcontext.core.database_kuzu import KuzuDBManager
-
-        lock = KuzuDBManager._query_lock
-        # threading.RLock() returns a _RLock instance.  The public API doesn't
-        # expose a direct type check, but we can verify reentrance works.
-        assert lock.acquire(blocking=False), "Could not acquire _query_lock"
-        # Second acquire on the same thread must succeed (reentrant).
-        assert lock.acquire(blocking=False), "_query_lock is not reentrant (not an RLock)"
-        lock.release()
-        lock.release()
