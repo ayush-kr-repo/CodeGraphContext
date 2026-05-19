@@ -50,6 +50,22 @@ const Explore = () => {
   const cypherQuery = searchParams.get("cypher_query") || "";
   const bundleUrl = searchParams.get("bundle_url") || "";
   
+  // Helper to bypass CORS for GitHub files and release assets
+  const getCorsFriendlyUrl = (url: string): string => {
+    if (!url) return "";
+    if (url.includes("raw.githubusercontent.com")) {
+      const match = url.match(/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/([^\/]+)\/(.+)$/);
+      if (match) {
+        const [_, owner, repo, branch, filepath] = match;
+        return `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filepath}`;
+      }
+    }
+    if (url.includes("github.com") && (url.includes("/releases/download/") || url.includes("/raw/"))) {
+      return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+  
   // If bundleUrl is present, we download and parse it client-side
   useEffect(() => {
     if (!bundleUrl) return;
@@ -58,7 +74,8 @@ const Explore = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(bundleUrl);
+        const targetUrl = getCorsFriendlyUrl(bundleUrl);
+        const response = await fetch(targetUrl);
         if (!response.ok) {
           throw new Error(`Failed to fetch bundle from URL (${response.status})`);
         }

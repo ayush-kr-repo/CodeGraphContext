@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FolderUp, FileArchive, Github, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseFilesIntoGraph } from "@/lib/parser";
+import { parseFilesWithPyodide } from "@/lib/parser-pyodide";
 import JSZip from "jszip";
 import { motion } from "framer-motion";
 
@@ -55,6 +56,7 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
   const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'cgc' | 'github'>('folder');
   const [githubUrl, setGithubUrl] = useState("");
   const [indexVariables, setIndexVariables] = useState(false);
+  const [indexerMode, setIndexerMode] = useState<'fast' | 'deep'>('fast');
 
   const processFiles = async (files: { path: string, content: string }[]) => {
     // Build fileContents map before the worker clears content for memory
@@ -66,12 +68,22 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
     setProgress({ text: `Parsing AST for ${files.length} files...`, value: 50 });
     await new Promise(r => setTimeout(r, 800));
     
-    setProgress({ text: "Initializing WebAssembly tree-sitter...", value: 80 });
-    const graphData = await parseFilesIntoGraph(
-      files, 
-      (msg, val) => setProgress({ text: msg, value: val }),
-      { indexVariables }
-    );
+    let graphData;
+    if (indexerMode === 'deep') {
+      setProgress({ text: "Initializing Python Engine...", value: 65 });
+      graphData = await parseFilesWithPyodide(
+        files, 
+        (msg, val) => setProgress({ text: msg, value: val }),
+        { indexVariables }
+      );
+    } else {
+      setProgress({ text: "Initializing WebAssembly tree-sitter...", value: 80 });
+      graphData = await parseFilesIntoGraph(
+        files, 
+        (msg, val) => setProgress({ text: msg, value: val }),
+        { indexVariables }
+      );
+    }
     
     setProgress({ text: "Complete!", value: 100 });
     await new Promise(r => setTimeout(r, 400));
@@ -326,12 +338,44 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
     <div className="flex flex-col p-6 w-full h-full min-h-[400px] border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden">
       
       {/* Tab Selectors */}
-      <div className="flex bg-white/5 p-1.5 rounded-2xl mb-8 relative z-10 w-full shadow-inner border border-white/5">
+      <div className="flex bg-white/5 p-1.5 rounded-2xl mb-6 relative z-10 w-full shadow-inner border border-white/5">
         <button onClick={() => setActiveTab('folder')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'folder' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>Folder</button>
         <button onClick={() => setActiveTab('zip')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'zip' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>ZIP</button>
         <button onClick={() => setActiveTab('cgc')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'cgc' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>CGC Bundle</button>
         <button onClick={() => setActiveTab('github')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'github' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>GitHub</button>
       </div>
+
+      {/* Indexer Mode Toggle Selector */}
+      {activeTab !== 'cgc' && (
+        <div className="flex flex-col bg-white/5 border border-white/10 rounded-2xl p-4 mb-6 relative z-10 w-full text-left gap-3 shadow-md">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-purple-400">
+              Select Indexer Engine
+            </span>
+            <span className="text-[10px] px-2.5 py-0.5 rounded-full font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-widest font-bold">
+              {indexerMode === 'fast' ? 'Instant' : 'Deep Semantic'}
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <button 
+              onClick={() => setIndexerMode('fast')} 
+              className={`p-3 rounded-xl border text-left transition-all duration-300 flex flex-col gap-1 ${indexerMode === 'fast' ? 'bg-white/10 border-purple-500/50 text-white shadow-lg' : 'bg-transparent border-white/5 text-gray-400 hover:text-white hover:bg-white/5'}`}
+            >
+              <span className="text-xs font-bold">⚡ Fast Indexer (JS)</span>
+              <span className="text-[10px] opacity-75">Instant startup, great for quick structure scan.</span>
+            </button>
+            
+            <button 
+              onClick={() => setIndexerMode('deep')} 
+              className={`p-3 rounded-xl border text-left transition-all duration-300 flex flex-col gap-1 ${indexerMode === 'deep' ? 'bg-gradient-to-br from-purple-950/40 to-indigo-950/40 border-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.15)]' : 'bg-transparent border-white/5 text-gray-400 hover:text-white hover:bg-white/5'}`}
+            >
+              <span className="text-xs font-bold">🔮 Deep Indexer (Py)</span>
+              <span className="text-[10px] opacity-75">Resolves complex cross-file scopes, imports, and inherits.</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {!isParsing ? (
         <div className="flex flex-col items-center justify-center flex-1 text-center w-full relative z-10">
