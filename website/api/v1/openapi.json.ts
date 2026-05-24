@@ -75,7 +75,10 @@ export default async function handler(req: any, res: any) {
               description: "Query executed successfully",
               content: {
                 "application/json": {
-                  schema: { type: "object" }
+                  schema: {
+                    type: "object",
+                    properties: {}
+                  }
                 }
               }
             }
@@ -101,7 +104,10 @@ export default async function handler(req: any, res: any) {
               description: "Dead code analysis completed successfully",
               content: {
                 "application/json": {
-                  schema: { type: "object" }
+                  schema: {
+                    type: "object",
+                    properties: {}
+                  }
                 }
               }
             }
@@ -127,7 +133,10 @@ export default async function handler(req: any, res: any) {
               description: "Complexity metrics returned successfully",
               content: {
                 "application/json": {
-                  schema: { type: "object" }
+                  schema: {
+                    type: "object",
+                    properties: {}
+                  }
                 }
               }
             }
@@ -160,7 +169,10 @@ export default async function handler(req: any, res: any) {
               description: "Most complex functions retrieved successfully",
               content: {
                 "application/json": {
-                  schema: { type: "object" }
+                  schema: {
+                    type: "object",
+                    properties: {}
+                  }
                 }
               }
             }
@@ -193,7 +205,10 @@ export default async function handler(req: any, res: any) {
               description: "Relationships analyzed successfully",
               content: {
                 "application/json": {
-                  schema: { type: "object" }
+                  schema: {
+                    type: "object",
+                    properties: {}
+                  }
                 }
               }
             }
@@ -219,7 +234,10 @@ export default async function handler(req: any, res: any) {
               description: "Stats retrieved successfully",
               content: {
                 "application/json": {
-                  schema: { type: "object" }
+                  schema: {
+                    type: "object",
+                    properties: {}
+                  }
                 }
               }
             }

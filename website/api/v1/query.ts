@@ -15,14 +15,18 @@ export default async function handler(req: any, res: any) {
   const params = method === "POST" ? (req.body || {}) : (req.query || {});
   const { repo, query_type, target, cypher_query } = params;
 
-  if (!repo || typeof repo !== "string") {
-    return res.status(400).json({ error: "Missing required parameter 'repo' (owner/repo)." });
-  }
-
   if (!query_type || typeof query_type !== "string") {
     return res.status(400).json({ 
       error: "Missing required parameter 'query_type'. Expected: 'definitions', 'callers', 'callees', 'file_structure', or 'cypher'." 
     });
+  }
+
+  const isGlobalTool = query_type === "list_indexed_repositories" || query_type === "search_registry_bundles";
+
+  if (!isGlobalTool) {
+    if (!repo || typeof repo !== "string") {
+      return res.status(400).json({ error: "Missing required parameter 'repo' (owner/repo)." });
+    }
   }
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -35,11 +39,16 @@ export default async function handler(req: any, res: any) {
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  const cleanRepo = repo.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//, "").replace(/\/$/, "");
   
-  // Clean channel name matches the specific repo to segment traffic
-  const cleanRepoName = cleanRepo.replace(/\//g, "_").toLowerCase();
-  const channelName = `cgc-tunnel-${cleanRepoName}`;
+  let channelName = "cgc-tunnel-global-mcp";
+  let cleanRepo = "";
+
+  if (!isGlobalTool && repo) {
+    cleanRepo = repo.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//, "").replace(/\/$/, "");
+    const cleanRepoName = cleanRepo.replace(/\//g, "_").toLowerCase();
+    channelName = `cgc-tunnel-${cleanRepoName}`;
+  }
+
   const channel = supabase.channel(channelName);
 
   const requestId = Math.random().toString(36).substring(2, 15);
