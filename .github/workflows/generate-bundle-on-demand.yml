@@ -119,7 +119,7 @@ jobs:
       - name: Export to .cgc bundle
         id: export
         run: |
-          BUNDLE_NAME="${{ steps.parse-url.outputs.repo }}-${{ steps.repo-meta.outputs.tag }}-${{ steps.repo-meta.outputs.commit_short }}.cgc"
+          BUNDLE_NAME="cgc__${{ steps.parse-url.outputs.owner }}__${{ steps.parse-url.outputs.repo }}__${{ steps.repo-meta.outputs.tag }}__${{ steps.repo-meta.outputs.commit_short }}.cgc"
           echo "📦 Creating bundle: $BUNDLE_NAME"
           
           cgc bundle export "$BUNDLE_NAME" --repo "$(pwd)/${{ steps.parse-url.outputs.repo }}"
