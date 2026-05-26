@@ -856,10 +856,7 @@ const Explore = () => {
       const currentGraph = await resolveGraph(targetRepo);
 
       if (!currentGraph) {
-        return {
-          status: "offline",
-          message: `The repository '${targetRepo}' is not actively loaded or cached in this browser session. Please open the workspace dashboard to load the code.`
-        };
+        throw new Error(`SILENT_IGNORE: The repository '${targetRepo}' is not actively loaded or cached in this browser tab.`);
       }
 
       const cleanTarget = target?.trim();
@@ -935,10 +932,7 @@ const Explore = () => {
       const currentGraph = await resolveGraph(targetRepo);
 
       if (!currentGraph) {
-        return {
-          status: "offline",
-          message: `The repository '${targetRepo}' is not actively loaded or cached in this browser session. Please open the workspace dashboard to load the code.`
-        };
+        throw new Error(`SILENT_IGNORE: The repository '${targetRepo}' is not actively loaded or cached in this browser tab.`);
       }
 
       const nodes = currentGraph.nodes || [];

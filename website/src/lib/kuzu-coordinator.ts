@@ -142,6 +142,10 @@ export class KuzuCoordinator {
               payload: { id, status: "success", result },
             });
           } catch (err: any) {
+            if (err?.message?.startsWith("SILENT_IGNORE")) {
+              console.log(`[KuzuCoordinator] 🔌 Bypassing query: ${err.message}`);
+              return;
+            }
             await channel.send({
               type: "broadcast",
               event: "query-response",
@@ -167,6 +171,10 @@ export class KuzuCoordinator {
               payload: { id, status: "success", result },
             });
           } catch (err: any) {
+            if (err?.message?.startsWith("SILENT_IGNORE")) {
+              console.log(`[KuzuCoordinator] 🔌 Bypassing tool call: ${err.message}`);
+              return;
+            }
             await channel.send({
               type: "broadcast",
               event: "tool-call-response",
