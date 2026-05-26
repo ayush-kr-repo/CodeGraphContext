@@ -57,7 +57,7 @@ export default async function handler(req: any, res: any) {
 
   const method = req.method;
   const params = method === "POST" ? (req.body || {}) : (req.query || {});
-  const { repo, query_type, target, cypher_query } = params;
+  const { repo, query_type, target, cypher_query, branch, commit } = params;
 
   if (!query_type || typeof query_type !== "string") {
     return res.status(400).json({
@@ -94,11 +94,14 @@ export default async function handler(req: any, res: any) {
     cleanRepo = repo.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//, "").replace(/\/$/, "");
   }
 
-  // Only Kuzu WASM queries are repository-scoped (since they require active visualization rendering).
-  // All MCP Python tools are background-capable and are routed globally!
-  if (isWasmQuery && !isGlobalTool && cleanRepo) {
+  // Route ALL queries to their specific repository channel if a repository is specified.
+  // We scope it by branch and commit for 100% concurrency isolation.
+  if (cleanRepo) {
     const cleanRepoName = cleanRepo.replace(/\//g, "_").toLowerCase();
-    channelName = `cgc-tunnel-${cleanRepoName}`;
+    const cleanBranch = branch ? String(branch).replace(/\//g, "_").toLowerCase() : "main";
+    const commitStr = commit ? String(commit) : "latest";
+    const cleanCommit = commitStr.length === 40 && /^[0-9a-fA-F]+$/.test(commitStr) ? commitStr.substring(0, 7).toLowerCase() : commitStr.toLowerCase();
+    channelName = `cgc-tunnel-${cleanRepoName}-${cleanBranch}-${cleanCommit}`;
   }
 
   const channel = supabase.channel(channelName);

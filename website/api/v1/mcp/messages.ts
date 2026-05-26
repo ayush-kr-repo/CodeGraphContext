@@ -68,83 +68,155 @@ export default async function handler(req: any, res: any) {
       }
 
       case "tools/list": {
-        const channelName = "cgc-tunnel-global-mcp";
-        const channel = supabase.channel(channelName);
-        const requestId = Math.random().toString(36).substring(2, 15);
-        let hasResponded = false;
-        let responsePayload: any = null;
-
-        const cleanup = () => {
-          try { supabase.removeChannel(channel); } catch (err) {}
-        };
-
-        // Step 1: Establish subscription first
-        await new Promise<void>((resolve, reject) => {
-          channel
-            .on(
-              "broadcast",
-              { event: "tools-list-response" },
-              ({ payload }: { payload: any }) => {
-                if (payload && payload.id === requestId) {
-                  hasResponded = true;
-                  responsePayload = payload;
-                  cleanup();
+        const staticTools = [
+          {
+            name: "get_repository_stats",
+            description: "Retrieves general repository graph statistics (counts of files, classes, methods, and relationship linkages).",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repo: {
+                  type: "string",
+                  description: "GitHub repository path in 'owner/repo' format (e.g. 'requests/requests')."
+                },
+                branch: {
+                  type: "string",
+                  description: "Optional active branch of the repository (e.g. 'main') for version-scoped routing."
+                },
+                commit: {
+                  type: "string",
+                  description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for version-scoped routing."
                 }
-              }
-            )
-            .subscribe((status: string) => {
-              if (status === "SUBSCRIBED") {
-                resolve();
-              } else if (status === "CLOSED" || status === "TIMED_OUT") {
-                reject(new Error(`Failed to connect to signaling tunnel: ${status}`));
-              }
-            });
-        });
-
-        // Step 2: Send dynamic tools list request
-        const sendStatus = await channel.send({
-          type: "broadcast",
-          event: "tools-list-request",
-          payload: { id: requestId }
-        });
-
-        if (sendStatus !== "ok") {
-          cleanup();
-          return res.status(200).json({
-            jsonrpc: "2.0",
-            id,
-            result: { tools: [] }
-          });
-        }
-
-                // Step 3: Await response or handle offline state on timeout
-        await new Promise<void>((resolve) => {
-          setTimeout(() => {
-            if (!hasResponded) {
-              cleanup();
+              },
+              required: ["repo"]
             }
-            resolve();
-          }, 1200);
-        });
-
-        if (!hasResponded) {
-          const connectNoticeTool = {
-            name: "cgc_connect_notice",
-            description: "ALERT: Browser-as-a-Server dashboard is offline. Open https://codegraphcontext.vercel.app to activate full Python MCP tools.",
-            inputSchema: { type: "object", properties: {} }
-          };
-          return res.status(200).json({
-            jsonrpc: "2.0",
-            id,
-            result: { tools: [connectNoticeTool] }
-          });
-        }
+          },
+          {
+            name: "find_dead_code",
+            description: "Locates unreferenced classes and functions inside the repository codebase.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repo: {
+                  type: "string",
+                  description: "GitHub repository path in 'owner/repo' format (e.g. 'requests/requests')."
+                },
+                branch: {
+                  type: "string",
+                  description: "Optional active branch of the repository (e.g. 'main') for version-scoped routing."
+                },
+                commit: {
+                  type: "string",
+                  description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for version-scoped routing."
+                }
+              },
+              required: ["repo"]
+            }
+          },
+          {
+            name: "calculate_cyclomatic_complexity",
+            description: "Computes cyclomatic complexity scores for all functions in the codebase.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repo: {
+                  type: "string",
+                  description: "GitHub repository path in 'owner/repo' format (e.g. 'requests/requests')."
+                },
+                branch: {
+                  type: "string",
+                  description: "Optional active branch of the repository (e.g. 'main') for version-scoped routing."
+                },
+                commit: {
+                  type: "string",
+                  description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for version-scoped routing."
+                }
+              },
+              required: ["repo"]
+            }
+          },
+          {
+            name: "find_most_complex_functions",
+            description: "Retrieves the functions with the highest cyclomatic complexity scores.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repo: {
+                  type: "string",
+                  description: "GitHub repository path in 'owner/repo' format (e.g. 'requests/requests')."
+                },
+                branch: {
+                  type: "string",
+                  description: "Optional active branch of the repository (e.g. 'main') for version-scoped routing."
+                },
+                commit: {
+                  type: "string",
+                  description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for version-scoped routing."
+                },
+                limit: {
+                  type: "integer",
+                  description: "Maximum number of functions to return (default: 10).",
+                  default: 10
+                }
+              },
+              required: ["repo"]
+            }
+          },
+          {
+            name: "analyze_code_relationships",
+            description: "Inspects coupling references, inherits, imports, and calls between symbols.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repo: {
+                  type: "string",
+                  description: "GitHub repository path in 'owner/repo' format (e.g. 'requests/requests')."
+                },
+                symbol: {
+                  type: "string",
+                  description: "Target symbol name to inspect relationships for."
+                },
+                branch: {
+                  type: "string",
+                  description: "Optional active branch of the repository (e.g. 'main') for version-scoped routing."
+                },
+                commit: {
+                  type: "string",
+                  description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for version-scoped routing."
+                }
+              },
+              required: ["repo", "symbol"]
+            }
+          },
+          {
+            name: "list_indexed_repositories",
+            description: "Scans for all repositories that have local graphs indexed in local WASM storage.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repo: {
+                  type: "string",
+                  description: "Active GitHub repository path in 'owner/repo' format to route the request."
+                },
+                branch: {
+                  type: "string",
+                  description: "Optional active branch of the repository (e.g. 'main') for version-scoped routing."
+                },
+                commit: {
+                  type: "string",
+                  description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for version-scoped routing."
+                }
+              },
+              required: ["repo"]
+            }
+          }
+        ];
 
         return res.status(200).json({
           jsonrpc: "2.0",
           id,
           result: {
-            tools: responsePayload?.tools || []
+            tools: staticTools
           }
         });
       }
@@ -160,6 +232,9 @@ export default async function handler(req: any, res: any) {
         }
 
         const repo = toolArgs?.repo || toolArgs?.repository || "";
+        const branch = toolArgs?.branch || "";
+        const commit = toolArgs?.commit || "";
+
         if (!repo || typeof repo !== "string") {
           return res.status(200).json({
             jsonrpc: "2.0",
@@ -176,8 +251,11 @@ export default async function handler(req: any, res: any) {
 
         const cleanRepo = repo.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//, "").replace(/\/$/, "");
         const cleanRepoName = cleanRepo.replace(/\//g, "_").toLowerCase();
+        const cleanBranch = branch ? String(branch).replace(/\//g, "_").toLowerCase() : "main";
+        const commitStr = commit ? String(commit) : "latest";
+        const cleanCommit = commitStr.length === 40 && /^[0-9a-fA-F]+$/.test(commitStr) ? commitStr.substring(0, 7).toLowerCase() : commitStr.toLowerCase();
         
-        const channelName = `cgc-tunnel-${cleanRepoName}`;
+        const channelName = `cgc-tunnel-${cleanRepoName}-${cleanBranch}-${cleanCommit}`;
         const channel = supabase.channel(channelName);
         const requestId = Math.random().toString(36).substring(2, 15);
         let hasResponded = false;

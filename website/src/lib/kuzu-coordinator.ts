@@ -165,54 +165,6 @@ export class KuzuCoordinator {
       this.globalChannel = supabase.channel(GLOBAL_CHANNEL_NAME);
 
       this.globalChannel
-        .on(
-          "broadcast",
-          { event: "tools-list-request" },
-          async ({ payload }: { payload: any }) => {
-            const { id } = payload || {};
-            if (!id || !this.globalChannel) return;
-            console.log(`[KuzuCoordinator] 📥 Tools List request received: id=${id}`);
-            try {
-              const tools = await this.getToolsCallback();
-              await this.globalChannel.send({
-                type: "broadcast",
-                event: "tools-list-response",
-                payload: { id, status: "success", tools },
-              });
-            } catch (err: any) {
-              await this.globalChannel.send({
-                type: "broadcast",
-                event: "tools-list-response",
-                payload: { id, status: "error", error: err.message },
-              });
-            }
-          }
-        )
-        .on(
-          "broadcast",
-          { event: "tool-call-request" },
-          async ({ payload }: { payload: any }) => {
-            const { id, toolName, args } = payload || {};
-            if (!id || !toolName || !this.globalChannel) return;
-            console.log(
-              `[KuzuCoordinator] 📥 Global MCP Tool Call request received: id=${id}, name=${toolName}`
-            );
-            try {
-              const result = await this.executeToolCallback(toolName, args);
-              await this.globalChannel.send({
-                type: "broadcast",
-                event: "tool-call-response",
-                payload: { id, status: "success", result },
-              });
-            } catch (err: any) {
-              await this.globalChannel.send({
-                type: "broadcast",
-                event: "tool-call-response",
-                payload: { id, status: "error", error: err.message },
-              });
-            }
-          }
-        )
         .subscribe((status: string) => {
           if (status === "SUBSCRIBED") {
             console.log(

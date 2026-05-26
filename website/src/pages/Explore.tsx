@@ -784,7 +784,14 @@ const Explore = () => {
 
   // ✅ Supabase Realtime Signaling Tunnel: Bridges ChatGPT Action calls to browser's AST Code Graph!
   useEffect(() => {
-    // 1. Get Supabase credentials (with 100% robust safe production fallbacks!)
+    // 1. Connection Guard: Enforce that the signaling tunnel remains completely offline
+    //    until the codebase index is 100% complete and graph data is fully loaded in memory.
+    if (!graphData) {
+      console.log("[Explore Tunnel] Indexing is not complete or no graph loaded. Signaling tunnel is locked offline.");
+      return;
+    }
+
+    // 2. Get Supabase credentials (with 100% robust safe production fallbacks!)
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://husyiuqyswpudlyuskno.supabase.co";
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1c3lpdXF5c3dwdWRseXVza25vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2NDUwNDYsImV4cCI6MjA5NTIyMTA0Nn0.dNCRxdGlL5vgug0sB4BwhCfBx_nAt9oR0RT2Upv0al8";
     
@@ -793,13 +800,20 @@ const Explore = () => {
       return;
     }
 
-    // 2. We segment traffic based on the active repo, or fallback to global channel
+    // 3. We segment traffic based on the active repo, or fallback to global channel
     const activeRepoPath = (owner && repo && owner.toLowerCase() !== "explore") 
       ? `${owner}/${repo}`.toLowerCase()
       : "playground";
       
     const cleanRepoName = activeRepoPath.replace(/\//g, "_");
-    const channelName = `cgc-tunnel-${cleanRepoName}`;
+
+    // 4. Extract version metadata (branch and commit) to build the version-scoped routing signature
+    const branchName = graphData.metadata?.branch || "main";
+    const commitSha = graphData.metadata?.commit || "latest";
+    const cleanBranch = branchName.replace(/\//g, "_").toLowerCase();
+    const cleanCommit = commitSha.length === 40 && /^[0-9a-fA-F]+$/.test(commitSha) ? commitSha.substring(0, 7).toLowerCase() : commitSha.toLowerCase();
+
+    const channelName = `cgc-tunnel-${cleanRepoName}-${cleanBranch}-${cleanCommit}`;
 
     console.log(`[Explore Tunnel] Booting MCP signaling conduit: ${channelName}`);
 
@@ -807,165 +821,184 @@ const Explore = () => {
     const resolveGraph = async (targetRepo: string): Promise<any | null> => {
       const cleanTarget = targetRepo?.trim().toLowerCase();
       const cleanActive = activeRepoPath.trim().toLowerCase();
-      const currentGraph = graphDataRef.current;
 
-      // If requested repo matches the currently loaded visualizer graph, return it instantly!
-      if (currentGraph && (cleanTarget === cleanActive || !targetRepo)) {
-        return currentGraph;
+      // Enforce strict local resolution: if the requested repository is NOT active and NOT in IndexedDB cache, return null.
+      // This strictly prevents fallback leaks where one user receives a completely different user's active codebase.
+      if (cleanTarget === cleanActive) {
+        return graphData;
       }
 
-      // Dynamic Scope: Fallback to reading the indexed repository from local IndexedDB cache in background!
-      if (targetRepo) {
-        const parts = cleanTarget.split("/");
-        if (parts.length === 2) {
-          console.log(`[Explore Tunnel] Dynamically fetching cached graph for ${cleanTarget} from IndexedDB...`);
-          const cached = await getCachedGraph(parts[0], parts[1]);
-          if (cached) return cached;
+      console.log(`[Explore Tunnel] Dynamically fetching cached graph for ${cleanTarget} from IndexedDB...`);
+      try {
+        const db = await openDB();
+        const cachedGraph = await new Promise<any | null>((resolveDB, rejectDB) => {
+          const tx = db.transaction("graphs", "readonly");
+          const store = tx.objectStore("graphs");
+          const request = store.get(cleanTarget);
+          request.onsuccess = () => resolveDB(request.result || null);
+          request.onerror = () => rejectDB(request.error);
+        });
+
+        if (cachedGraph) {
+          console.log(`[Explore Tunnel] Successfully found cached graph for ${cleanTarget} in IndexedDB.`);
+          return cachedGraph;
         }
+      } catch (e) {
+        console.warn(`[Explore Tunnel] Failed to load cached graph for ${cleanTarget} from DB:`, e);
       }
-      return currentGraph;
+
+      console.warn(`[Explore Tunnel] Access denied: Target repository ${cleanTarget} is offline or not cached.`);
+      return null;
     };
 
-    // 3. Direct Kuzu WASM Query Handlers (e.g. definitions, callers, callees, search)
+    // 5. Execute query callback from Supabase Realtime Tunnel
     const executeQueryCallback = async (queryType: string, target: string, params: any) => {
+      console.log(`[Explore Tunnel] Running WASM query: type=${queryType}, target=${target}`);
+      
       const targetRepo = params?.repo || "";
       const currentGraph = await resolveGraph(targetRepo);
+
       if (!currentGraph) {
-        throw new Error(`Repository ${targetRepo || activeRepoPath} is not indexed or loaded in this browser tab.`);
+        return {
+          status: "offline",
+          message: `The repository '${targetRepo}' is not actively loaded or cached in this browser session. Please open the workspace dashboard to load the code.`
+        };
+      }
+
+      const cleanTarget = target?.trim();
+      const nodes = currentGraph.nodes || [];
+      const links = currentGraph.links || [];
+
+      switch (queryType) {
+        case "definitions": {
+          if (!cleanTarget) return { error: "Missing required argument 'target'." };
+          const results = nodes.filter((n: any) => n.name === cleanTarget);
+          return { results };
+        }
+
+        case "callers": {
+          if (!cleanTarget) return { error: "Missing required argument 'target'." };
+          const targetNode = nodes.find((n: any) => n.name === cleanTarget);
+          if (!targetNode) return { results: [] };
+          const callerLinks = links.filter((l: any) => l.target === targetNode.id && l.type === "CALLS");
+          const callerIds = new Set(callerLinks.map((l: any) => l.source));
+          const results = nodes.filter((n: any) => callerIds.has(n.id));
+          return { results };
+        }
+
+        case "callees": {
+          if (!cleanTarget) return { error: "Missing required argument 'target'." };
+          const targetNode = nodes.find((n: any) => n.name === cleanTarget);
+          if (!targetNode) return { results: [] };
+          const calleeLinks = links.filter((l: any) => l.source === targetNode.id && l.type === "CALLS");
+          const calleeIds = new Set(calleeLinks.map((l: any) => l.target));
+          const results = nodes.filter((n: any) => calleeIds.has(n.id));
+          return { results };
+        }
+
+        case "file_structure": {
+          if (!cleanTarget) return { error: "Missing required argument 'target' (file path)." };
+          const results = nodes.filter((n: any) => n.file === cleanTarget || n.path === cleanTarget);
+          return { results };
+        }
+
+        case "search": {
+          if (!cleanTarget) return { error: "Missing required argument 'target'." };
+          const query = cleanTarget.toLowerCase();
+          const results = nodes.filter((n: any) => n.name?.toLowerCase().includes(query) || n.file?.toLowerCase().includes(query));
+          return { results: results.slice(0, 50) };
+        }
+
+        case "cypher": {
+          const cypherQuery = params?.cypher_query || target || "";
+          console.log(`[Explore Tunnel] Running local Cypher emulation: ${cypherQuery}`);
+          return {
+            status: "success",
+            message: "Cypher emulator successfully received query. Emulated results returned.",
+            nodes: nodes.slice(0, 10),
+            links: links.slice(0, 5)
+          };
+        }
+
+        default:
+          return { error: `Unsupported query type: ${queryType}` };
+      }
+    };
+
+    // Callback to list dynamic tools (now static schemas Discovery is handled instantly at Vercel level)
+    const getToolsCallback = async () => {
+      return [];
+    };
+
+    // Callback to execute custom Python / Pyodide MCP tools inside the browser!
+    const executeToolCallback = async (toolName: string, args: any) => {
+      console.log(`[Explore Tunnel] Running Python MCP Tool: name=${toolName}`, args);
+      
+      const targetRepo = args?.repo || args?.repository || "";
+      const currentGraph = await resolveGraph(targetRepo);
+
+      if (!currentGraph) {
+        return {
+          status: "offline",
+          message: `The repository '${targetRepo}' is not actively loaded or cached in this browser session. Please open the workspace dashboard to load the code.`
+        };
       }
 
       const nodes = currentGraph.nodes || [];
       const links = currentGraph.links || [];
 
-      console.log(`[Explore Tunnel] Running WASM query: type=${queryType}, target=${target}`);
-
-      switch (queryType) {
-        case "definitions":
-          return nodes.filter((n: any) => n.name.toLowerCase() === target.toLowerCase());
-        
-        case "callers": {
-          const targetNodes = nodes.filter((n: any) => n.name.toLowerCase() === target.toLowerCase());
-          const targetIds = new Set(targetNodes.map((n: any) => n.id));
-          const callerLinks = links.filter((l: any) => targetIds.has(String(l.target)));
-          const callerIds = new Set(callerLinks.map((l: any) => l.source));
-          return nodes.filter((n: any) => callerIds.has(n.id));
-        }
-
-        case "callees": {
-          const targetNodes = nodes.filter((n: any) => n.name.toLowerCase() === target.toLowerCase());
-          const targetIds = new Set(targetNodes.map((n: any) => n.id));
-          const calleeLinks = links.filter((l: any) => targetIds.has(String(l.source)));
-          const calleeIds = new Set(calleeLinks.map((l: any) => l.target));
-          return nodes.filter((n: any) => calleeIds.has(n.id));
-        }
-
-        case "file_structure":
-          return nodes.filter((n: any) => n.file && n.file.toLowerCase() === target.toLowerCase());
-
-        case "search":
-          return nodes.filter((n: any) => n.name.toLowerCase().includes(target.toLowerCase()));
-
-        case "cypher":
-          // Synchronous mock Cypher graph lookup: returns local slice for immediate chat rendering
-          return {
-            nodes: nodes.slice(0, 80),
-            links: links.slice(0, 80)
-          };
-
-        default:
-          throw new Error(`Unknown WASM query lookups: ${queryType}`);
-      }
-    };
-
-    // 4. MCP Tools Discovery
-    const getToolsCallback = async () => {
-      return [
-        { name: "find_dead_code", description: "Locates unreferenced classes and functions." },
-        { name: "calculate_cyclomatic_complexity", description: "Computes cyclomatic complexity scores." },
-        { name: "find_most_complex_functions", description: "Retrieves functions with highest complexity." },
-        { name: "analyze_code_relationships", description: "Inspects coupling references between symbols." },
-        { name: "get_repository_stats", description: "Retrieves general repository graph statistics." },
-        { name: "list_indexed_repositories", description: "Scans for all repositories that have local graphs indexed." }
-      ];
-    };
-
-    // 5. Python MCP Tools execution (Synchronous in-browser AST graph execution!)
-    const executeToolCallback = async (toolName: string, args: any) => {
-      const targetRepo = args?.repo || "";
-      const currentGraph = await resolveGraph(targetRepo);
-      if (!currentGraph && toolName !== "list_indexed_repositories") {
-        throw new Error(`Repository ${targetRepo || activeRepoPath} is not indexed or loaded in this browser tab.`);
-      }
-
-      const nodes = currentGraph?.nodes || [];
-      const links = currentGraph?.links || [];
-
-      console.log(`[Explore Tunnel] Running Python MCP Tool: name=${toolName}`, args);
-
       switch (toolName) {
         case "get_repository_stats": {
-          const fileCount = nodes.filter((n: any) => n.type?.toLowerCase() === "file").length;
-          const classCount = nodes.filter((n: any) => n.type?.toLowerCase() === "class").length;
-          const functionCount = nodes.filter((n: any) => n.type?.toLowerCase() === "function").length;
+          const filesCount = new Set(nodes.map((n: any) => n.file).filter(Boolean)).size;
+          const classesCount = nodes.filter((n: any) => n.type === "Class").length;
+          const functionsCount = nodes.filter((n: any) => n.type === "Function").length;
+
           return {
             repository: targetRepo || activeRepoPath,
             total_nodes: nodes.length,
             total_links: links.length,
-            files_count: fileCount,
-            classes_count: classCount,
-            functions_count: functionCount,
-            status: "ready"
+            files_count: filesCount,
+            classes_count: classesCount,
+            functions_count: functionsCount
           };
         }
 
         case "find_dead_code": {
-          // Identify class & function symbols with 0 incoming reference linkages
-          const targetsWithCalls = new Set(links.map((l: any) => String(l.target)));
-          const deadSymbols = nodes
-            .filter((n: any) => {
-              const isAnalysisTarget = n.type?.toLowerCase() === "function" || n.type?.toLowerCase() === "class";
-              return isAnalysisTarget && !targetsWithCalls.has(n.id);
-            })
-            .map((n: any) => ({
-              name: n.name,
-              type: n.type,
-              file: n.file
-            }));
+          // Identify orphan nodes with 0 incoming or outgoing dependencies
+          const referencedIds = new Set(links.flatMap((l: any) => [l.source, l.target]));
+          const deadNodes = nodes.filter((n: any) => !referencedIds.has(n.id) && (n.type === "Function" || n.type === "Class"));
 
           return {
             repository: targetRepo || activeRepoPath,
-            dead_symbols: deadSymbols.slice(0, 30),
-            total_dead_symbols: deadSymbols.length
+            dead_symbols: deadNodes.map((n: any) => ({ name: n.name, type: n.type, file: n.file })),
+            total_dead_symbols: deadNodes.length
           };
         }
 
         case "calculate_cyclomatic_complexity":
         case "find_most_complex_functions": {
-          const limit = args.limit || 10;
-          // Calculate realistic structural complexity weights from incoming/outgoing symbol call degrees
-          const complexFunctions = nodes
-            .filter((n: any) => n.type?.toLowerCase() === "function")
-            .map((n: any) => {
-              const baseComplexity = (n.name.length % 5) + 1; // realistic baseline variance
-              const activeDegree = links.filter((l: any) => l.source === n.id || l.target === n.id).length;
-              return {
-                name: n.name,
-                file: n.file,
-                complexity: baseComplexity + activeDegree
-              };
-            })
-            .sort((a: any, b: any) => b.complexity - a.complexity);
+          const limit = args?.limit || 10;
+          const complexNodes = nodes
+            .filter((n: any) => typeof n.complexity === "number")
+            .sort((a: any, b: any) => b.complexity - a.complexity)
+            .slice(0, limit);
 
           return {
             repository: targetRepo || activeRepoPath,
-            most_complex_functions: complexFunctions.slice(0, limit)
+            most_complex_functions: complexNodes.map((n: any) => ({ name: n.name, file: n.file, complexity: n.complexity }))
           };
         }
 
         case "analyze_code_relationships": {
-          const symbol = args.symbol || "";
-          const targetNodes = nodes.filter((n: any) => n.name.toLowerCase().includes(symbol.toLowerCase()));
-          const targetIds = new Set(targetNodes.map((n: any) => n.id));
+          const symbol = args?.symbol || "";
+          if (!symbol) return { error: "Missing required argument 'symbol'." };
+
+          const targetNodes = nodes.filter((n: any) => n.name === symbol);
+          if (targetNodes.length === 0) {
+            return { repository: targetRepo || activeRepoPath, relationships_count: 0, connected_nodes: [], connected_links: [] };
+          }
+
+          const targetIds = new Set(targetNodes.map((n: any) => String(n.id)));
           const relevantLinks = links.filter((l: any) => targetIds.has(String(l.source)) || targetIds.has(String(l.target)));
           const linkedIds = new Set(relevantLinks.flatMap((l: any) => [l.source, l.target]));
           const linkedNodes = nodes.filter((n: any) => linkedIds.has(n.id));
@@ -1025,7 +1058,7 @@ const Explore = () => {
     return () => {
       coordinator.stop();
     };
-  }, [owner, repo]);
+  }, [owner, repo, graphData]);
   
   // If bundleUrl is present, we download and parse it client-side
   useEffect(() => {

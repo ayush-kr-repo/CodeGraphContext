@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
   Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
-  Download, UploadCloud, Menu, MessageSquare
+  Download, UploadCloud, Menu, MessageSquare, Copy
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -361,22 +361,65 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const { owner, repo } = useParams();
   const defaultRepoName = data.metadata?.repo || (owner && repo ? `${owner}/${repo}` : "");
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showChatGPTModal, setShowChatGPTModal] = useState(false);
   const [publishRepo, setPublishRepo] = useState("");
   const [publishVersion, setPublishVersion] = useState("1.0.0");
   const [isPublishing, setIsPublishing] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
+  // Dynamic ChatGPT Connection URL with pre-filled version-scoped query
+  const metadata = data.metadata || {};
+  const repoName = metadata.repo || (owner && repo ? `${owner}/${repo}` : "playground");
+  const branchName = metadata.branch || "main";
+  const commitSha = metadata.commit || "latest";
+  const cleanCommit = commitSha.length === 40 && /^[0-9a-fA-F]+$/.test(commitSha) ? commitSha.substring(0, 7) : commitSha;
+
+  // Standardized bundle/repository naming format we designed: owner__repo__branch__commit
+  const [ownerPart, repoPart] = repoName.includes('/') ? repoName.split('/') : [owner || repoName, repo || ''];
+  const cleanOwner = String(ownerPart).trim();
+  const cleanRepo = String(repoPart).trim();
+  const designedRepoName = cleanOwner && cleanRepo 
+    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}` 
+    : repoName;
+
+  const chatgptPreFillPrompt = `Let's analyze the repository bundle ${designedRepoName}.cgc`;
+  const encodedPrompt = encodeURIComponent(chatgptPreFillPrompt);
+  const chatgptUrl = `https://chatgpt.com/g/g-6a1368599210819199a1c47d021020b6-codegraphcontext?q=${encodedPrompt}`;
+
+  const handleConnectChatGPT = () => {
+    setShowChatGPTModal(true);
+  };
+
+  const handleCopyAndLaunchChatGPT = () => {
+    navigator.clipboard.writeText(chatgptPreFillPrompt)
+      .then(() => {
+        toast.success("Prompt copied to clipboard!", {
+          icon: "📋",
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to auto-copy prompt:", err);
+      });
+    window.open(chatgptUrl, "_blank", "noopener,noreferrer");
+    setShowChatGPTModal(false);
+  };
+
   const handleExport = async () => {
     try {
       const repoName = data.metadata?.repo || "unknown/code-graph";
-      const owner = repoName.includes('/') ? repoName.split('/')[0] : "unknown";
-      const repo = repoName.includes('/') ? repoName.split('/')[1] : repoName;
-      const branch = "main";
-      const commit = data.metadata?.commit || data.metadata?.version || "latest";
-      const cleanCommit = commit.length === 40 && /^[0-9a-fA-F]+$/.test(commit) ? commit.substring(0, 7) : commit;
-      const filename = `cgc__${owner}__${repo}__${branch}__${cleanCommit}.cgc`;
+      let filename = "";
+      if (repoName.includes('/')) {
+        const owner = repoName.split('/')[0];
+        const repo = repoName.split('/')[1];
+        const branch = data.metadata?.branch || "main";
+        const commit = data.metadata?.commit || data.metadata?.version || "latest";
+        const cleanCommit = commit.length === 40 && /^[0-9a-fA-F]+$/.test(commit) ? commit.substring(0, 7) : commit;
+        filename = `${owner}__${repo}__${branch}__${cleanCommit}.cgc`;
+      } else {
+        filename = `${repoName}.cgc`;
+      }
       
-      const blob = await packageCgcBundle(repoName, data.nodes, data.links);
+      const blob = await packageCgcBundle(repoName, data.nodes, data.links, data.metadata?.version || "1.0.0", data.metadata);
       downloadBlob(blob, filename);
       toast.success("CGC bundle exported successfully!");
     } catch (err: any) {
@@ -393,7 +436,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     }
     setIsPublishing(true);
     try {
-      const blob = await packageCgcBundle(publishRepo, data.nodes, data.links, publishVersion);
+      const blob = await packageCgcBundle(publishRepo, data.nodes, data.links, publishVersion, data.metadata);
       const result = await publishCgcBundle(blob, publishRepo, publishVersion);
       if (result.success) {
         toast.success(`Successfully published ${publishRepo} (v${publishVersion}) to the registry!`);
@@ -1479,17 +1522,15 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             </button>
 
             {/* ChatGPT Tunnel Button */}
-            <a
-              href="https://chatgpt.com/g/g-6a1368599210819199a1c47d021020b6-codegraphcontext"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={handleConnectChatGPT}
               className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               title="Open the CGC ChatGPT GPT. Keep this cgc.codes tab focused (not behind ChatGPT) so the signaling tunnel stays online."
             >
               <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" title="Tunnel status is not shown here — keep this tab active while using ChatGPT" />
               <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
               ChatGPT
-            </a>
+            </button>
 
             {/* Mode Selector Dropdown */}
             <div ref={modeMenuRef} className="relative">
@@ -1594,17 +1635,17 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 </button>
 
                 {/* Mobile ChatGPT Tunnel */}
-                <a
-                  href="https://chatgpt.com/g/g-6a1368599210819199a1c47d021020b6-codegraphcontext"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setShowMobileMenu(false)}
+                <button
+                  onClick={() => {
+                    handleConnectChatGPT();
+                    setShowMobileMenu(false);
+                  }}
                   className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
                   <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" />
                   <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
                   ChatGPT Tunnel
-                </a>
+                </button>
 
                 {/* Mobile Mode Selector */}
                 <div className="border-t border-white/5 my-0.5" />
@@ -2105,6 +2146,107 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   </Button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── CHATGPT CONNECTION INSTRUCTION MODAL ── */}
+      <AnimatePresence>
+        {showChatGPTModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowChatGPTModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+
+            {/* Dialog Panel */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
+                isDark 
+                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+                  : "bg-white/90 border-zinc-200 text-zinc-900"
+              }`}
+            >
+              {/* Subtle top glow bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-bold tracking-tight flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-purple-400" />
+                    Connect to ChatGPT GPT
+                  </h3>
+                  <p className={`text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                    To link ChatGPT to this browser tunnel, you need to paste a setup prompt.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowChatGPTModal(false)}
+                  className={`p-1.5 rounded-full transition-colors ${
+                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    Connection Prompt (Auto-copied on Launch)
+                  </label>
+                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${
+                    isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                  }`}>
+                    <span className="select-all break-all pr-8">{chatgptPreFillPrompt}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(chatgptPreFillPrompt);
+                        toast.success("Prompt copied to clipboard!", { icon: "📋" });
+                      }}
+                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
+                        isDark ? "hover:bg-white/5 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
+                      }`}
+                      title="Copy prompt to clipboard"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                  isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
+                }`}>
+                  <p className="font-semibold mb-1">💡 Important Instruction:</p>
+                  <p>When the ChatGPT window loads, click on the chat box, press <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Ctrl+V</kbd> (or <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Cmd+V</kbd>) to paste the copied prompt, and hit enter!</p>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowChatGPTModal(false)}
+                    className="w-full rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleCopyAndLaunchChatGPT}
+                    className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                  >
+                    Copy & Open ChatGPT
+                  </Button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

@@ -523,6 +523,15 @@ export default async function handler(req: any, res: any) {
           summary: "List Indexed Repositories",
           description: "Scans and returns all repository graphs indexed inside local WASM storage.",
           operationId: "listIndexedRepositories",
+          parameters: [
+            {
+              name: "repo",
+              in: "query",
+              description: "Active GitHub repository path in 'owner/repo' format to route the request.",
+              required: true,
+              schema: { type: "string" }
+            }
+          ],
           responses: {
             "200": {
               description: "Indexed repository list returned successfully",
@@ -541,6 +550,36 @@ export default async function handler(req: any, res: any) {
       }
     }
   };
+
+  // Programmatically inject 'branch' and 'commit' parameters to all endpoints in a highly DRY, robust manner!
+  const commonParams = [
+    {
+      name: "branch",
+      in: "query",
+      description: "Optional active branch name of the repository (e.g. 'main') for routing isolation.",
+      required: false,
+      schema: { type: "string" }
+    },
+    {
+      name: "commit",
+      in: "query",
+      description: "Optional active 7-character commit hash of the repository (e.g. 'a1b2c3d') for routing isolation.",
+      required: false,
+      schema: { type: "string" }
+    }
+  ];
+
+  for (const pathKey of Object.keys(spec.paths)) {
+    const pathObj = (spec.paths as any)[pathKey];
+    for (const method of ["get", "post"]) {
+      if (pathObj[method] && Array.isArray(pathObj[method].parameters)) {
+        const hasBranch = pathObj[method].parameters.some((p: any) => p.name === "branch");
+        if (!hasBranch) {
+          pathObj[method].parameters.push(...commonParams);
+        }
+      }
+    }
+  }
 
   return res.status(200).json(spec);
 }
