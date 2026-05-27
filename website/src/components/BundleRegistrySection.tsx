@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Download, Package, Calendar, HardDrive, Star, Loader2, ExternalLink, Copy, Check, HelpCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Download, Package, Calendar, HardDrive, Star, Loader2, ExternalLink, Copy, Check, HelpCircle, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -210,6 +210,17 @@ const BundleRegistrySection = () => {
             .catch(() => toast.error('Failed to copy command'));
     };
 
+    const handleShareRegistry = () => {
+        const shareUrl = `${window.location.origin}/pre-indexed`;
+        navigator.clipboard.writeText(shareUrl)
+            .then(() => {
+                toast.success('Registry share link copied to clipboard!');
+            })
+            .catch(() => {
+                toast.error('Failed to copy share link');
+            });
+    };
+
     const scrollSlider = (direction: 'left' | 'right') => {
         const slider = document.getElementById('registry-slider');
         if (slider) {
@@ -237,13 +248,24 @@ const BundleRegistrySection = () => {
                         </p>
                     </div>
 
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full md:w-auto">
-                                <HelpCircle className="w-4 h-4 mr-2" />
-                                How to Use Bundles
-                            </Button>
-                        </DialogTrigger>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full sm:w-auto border-white/10 text-white hover:bg-white/5 hover:border-white/20 transition-all duration-300"
+                            onClick={handleShareRegistry}
+                        >
+                            <Share2 className="w-4 h-4 mr-2 text-indigo-400" />
+                            Share Registry
+                        </Button>
+
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                                    <HelpCircle className="w-4 h-4 mr-2" />
+                                    How to Use Bundles
+                                </Button>
+                            </DialogTrigger>
                         <DialogContent className="sm:max-w-[480px]">
                             <DialogHeader>
                                 <DialogTitle>How to Use Pre-indexed Bundles</DialogTitle>
@@ -273,6 +295,7 @@ const BundleRegistrySection = () => {
                             </div>
                         </DialogContent>
                     </Dialog>
+                    </div>
                 </div>
 
                 {import.meta.env.DEV && (
