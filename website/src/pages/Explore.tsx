@@ -700,6 +700,15 @@ const Explore = () => {
         setProgressText("Initializing WebAssembly semantic engine...");
         setProgressValue(60);
         
+        // Load custom indexer settings from localStorage
+        let localConfig = { indexVariables: false, maxNodes: 100000, maxEdges: 50000 };
+        try {
+          const saved = localStorage.getItem('cgc_indexer_config');
+          if (saved) {
+            localConfig = { ...localConfig, ...JSON.parse(saved) };
+          }
+        } catch (e) {}
+
         const graphData = await parseFilesIntoGraph(
           files,
           (msg, val, diagLog) => {
@@ -710,7 +719,11 @@ const Explore = () => {
               setProgressValue(val);
             }
           },
-          { indexVariables: true }
+          { 
+            indexVariables: localConfig.indexVariables,
+            maxNodes: localConfig.maxNodes,
+            maxEdges: localConfig.maxEdges
+          }
         );
         
         setProgressText("Complete!");
