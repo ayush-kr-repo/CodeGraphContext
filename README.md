@@ -8,7 +8,7 @@
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
 - 🇷🇺 [Русский](README.ru-RU.md)
-- 🇯🇵 日本語 (Soon)
+- 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (Soon)
 
 🌍 **Help translate CodeGraphContext to your language by raising an issue & PR on https://github.com/Shashankss1205/CodeGraphContext/issues!**
