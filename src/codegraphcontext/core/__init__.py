@@ -95,7 +95,7 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
                 info_logger("FalkorDB Lite is not supported or not installed. Falling back to KùzuDB.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
-                    return KuzuDBManager()
+                    return KuzuDBManager(db_path=db_path)
                 raise ValueError("Database set to 'falkordb' but FalkorDB Lite is not installed or not supported on this OS.\nRun 'pip install falkordblite'")
             
             from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
@@ -167,6 +167,12 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         from .database_kuzu import KuzuDBManager
         info_logger(f"Using KùzuDB (default) at {db_path or 'default path'}")
         return KuzuDBManager(db_path=db_path)
+
+    # Implicit: LadybugDB when available
+    if _is_ladybugdb_available():
+        from .database_ladybug import LadybugDBManager
+        info_logger(f"Using LadybugDB (default) at {db_path or 'default path'}")
+        return LadybugDBManager(db_path=db_path)
 
     # Implicit: Neo4j when configured
     if _is_neo4j_configured():
