@@ -130,7 +130,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 -   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`codegraphcontext watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 20 programming languages.
+-   **Multi-Language Support:** Full support for 22 programming languages.
 -   **Flexible Database Backend:** FalkorDB Lite (Default), KuzuDB, LadybugDB, FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
 
 
@@ -143,12 +143,13 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | | Language | | Language | | Language |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | 🐍 | **Python** | 📜 | **JavaScript** | 🔷 | **TypeScript** |
-| ☕ | **Java** | 🏗️ | **C / C++** | #️⃣ | **C#** |
-| 🐹 | **Go** | 🦀 | **Rust** | 💎 | **Ruby** |
-| 🐘 | **PHP** | 🍎 | **Swift** | 🎨 | **Kotlin** |
-| 🎯 | **Dart** | 🐪 | **Perl** | 🌙 | **Lua** |
-| 🚀 | **Scala** | λ | **Haskell** | 💧 | **Elixir** |
-| ⚛️ | **TSX** | | | | |
+| ☕ | **Java** | 🔵 | **C** | ➕ | **C++** |
+| #️⃣ | **C#** | 🐹 | **Go** | 🦀 | **Rust** |
+| 💎 | **Ruby** | 🐘 | **PHP** | 🍎 | **Swift** |
+| 🎨 | **Kotlin** | 🎯 | **Dart** | 🐪 | **Perl** |
+| 🌙 | **Lua** | 🚀 | **Scala** | λ | **Haskell** |
+| 💧 | **Elixir** | 📜 | **Emacs Lisp (elisp)** | 🌐 | **HTML** |
+| 🎨 | **CSS** | ⚛️ | **TSX** | | |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
 
