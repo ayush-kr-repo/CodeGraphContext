@@ -693,6 +693,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return { degreeMap: dm, maxDegree: max };
   }, [filteredData]);
 
+  useEffect(() => {
+    setSimulationReady(false);
+  }, [filteredData]);
+
   const nodeCanvasObject = useCallback((node: any, ctx: any, globalScale: number) => {
     if (!visibleNodeTypes.has(node.type)) return;
     if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;

@@ -34,6 +34,22 @@ export async function exportSvg(
   const bgColor = isDark ? '#020202' : '#f5f5f7';
   const textColor = isDark ? '#ffffff' : '#1a1a1a';
 
+  // Collect unique edge colors
+  const uniqueEdgeColors = new Set<string>();
+  links.forEach((link: any) => {
+    const color = edgeColors[link.type] || (isDark ? '#ffffff' : '#000000');
+    uniqueEdgeColors.add(color);
+  });
+
+  // Build marker defs
+  const markerDefs = Array.from(uniqueEdgeColors).map(color => {
+    const id = 'arrow-' + color.replace('#', '');
+    return `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="${color}" opacity="0.6"/>
+    </marker>`;
+  }).join('\n');
+
   // Build SVG string
   const svgElements: string[] = [];
   
@@ -52,9 +68,10 @@ export async function exportSvg(
       const y2 = targetPos.y - minY + padding;
       
       const linkColor = edgeColors[link.type] || (isDark ? '#ffffff' : '#000000');
+      const arrowId = 'arrow-' + linkColor.replace('#', '');
       
       svgElements.push(
-        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${linkColor}" stroke-opacity="0.3" stroke-width="0.8" />`
+        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${linkColor}" stroke-opacity="0.3" stroke-width="0.8" marker-end="url(#${arrowId})" />`
       );
     }
   });
@@ -66,7 +83,9 @@ export async function exportSvg(
       const cx = pos.x - minX + padding;
       const cy = pos.y - minY + padding;
       const color = nodeColors[node.type] || nodeColors.Other || '#42a5f5';
-      const r = (node.val || 1) * 2;
+      const N = nodes.length;
+      const nScale = N > 3000 ? 0.3 : N > 1000 ? 0.5 : N > 400 ? 0.7 : 1.0;
+      const r = Math.max(1.5, (node.val || 1) * 0.8 * 3.0 * nScale);
       
       svgElements.push(
         `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" stroke="${isDark ? '#000000' : '#ffffff'}" stroke-width="0.5" />`
@@ -81,8 +100,9 @@ export async function exportSvg(
           .replace(/"/g, '&quot;')
           .replace(/'/g, '&apos;');
           
+        const fontSize = Math.max(8, r * 1.5);
         svgElements.push(
-          `<text x="${cx}" y="${cy + r + 4}" font-family="sans-serif" font-size="4" fill="${textColor}" text-anchor="middle">${safeLabel}</text>`
+          `<text x="${cx}" y="${cy + r + fontSize + 2}" font-family="Inter, ui-monospace, sans-serif" font-size="${fontSize}" fill="${textColor}" text-anchor="middle">${safeLabel}</text>`
         );
       }
     }
@@ -90,6 +110,9 @@ export async function exportSvg(
 
   const svgString = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background-color: ${bgColor};">
+  <defs>
+    ${markerDefs}
+  </defs>
   ${svgElements.join('\n  ')}
 </svg>`;
 

@@ -1,5 +1,11 @@
 import JSZip from "jszip";
 
+async function fetchD3(): Promise<string> {
+  const res = await fetch('https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js');
+  if (!res.ok) throw new Error('Failed to fetch d3 for bundling');
+  return res.text();
+}
+
 interface GraphNode {
   id: string | number;
   name: string;
@@ -70,7 +76,8 @@ const SHARED_CSS = `
 function generateClassicHTML(
   dataJson: string,
   nodeColorsJson: string,
-  edgeColorsJson: string
+  edgeColorsJson: string,
+  d3Bundle: string
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -90,7 +97,7 @@ function generateClassicHTML(
   <div id="tooltip"></div>
   <div id="legend"></div>
   <canvas id="canvas"></canvas>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  ${d3Bundle ? `<script>${d3Bundle}</script>` : `<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>`}
   <script>
   (function() {
     var rawData = ${dataJson};
@@ -248,7 +255,8 @@ function generateClassicHTML(
 function generateFlowchartHTML(
   dataJson: string,
   nodeColorsJson: string,
-  edgeColorsJson: string
+  edgeColorsJson: string,
+  d3Bundle: string
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -281,7 +289,7 @@ function generateFlowchartHTML(
   <div id="tooltip"></div>
   <div id="legend"></div>
   <svg id="chart"></svg>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  ${d3Bundle ? `<script>${d3Bundle}</script>` : `<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>`}
   <script>
   (function() {
     var rawData = ${dataJson};
@@ -586,10 +594,18 @@ export async function packageInteractiveExport(
   // Compact data json for inline use (no pretty-print)
   const inlineDataJson = JSON.stringify(graphData);
 
+  let d3Bundle = '';
+  try {
+    d3Bundle = await fetchD3();
+  } catch {
+    // fallback to CDN if fetch fails (e.g. user is already offline at export time)
+    d3Bundle = '';
+  }
+
   // Generate HTML based on mode
   const htmlContent = mode === 'mermaid'
-    ? generateFlowchartHTML(inlineDataJson, nodeColorsJson, edgeColorsJson)
-    : generateClassicHTML(inlineDataJson, nodeColorsJson, edgeColorsJson);
+    ? generateFlowchartHTML(inlineDataJson, nodeColorsJson, edgeColorsJson, d3Bundle)
+    : generateClassicHTML(inlineDataJson, nodeColorsJson, edgeColorsJson, d3Bundle);
 
   zip.file("index.html", htmlContent);
 
