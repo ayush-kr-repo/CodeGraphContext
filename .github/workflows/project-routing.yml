@@ -18,14 +18,13 @@ jobs:
         with:
           script: |
             const labelName = context.payload.label.name;
-            const label = labelName.toLowerCase();
             const isPullRequest = !!context.payload.issue.pull_request;
 
             console.log(`Processing label: "${labelName}"`);
             console.log(`Associated with PR? ${isPullRequest}`);
 
             // 1. Handle "blocked" label
-            if (label === 'blocked') {
+            if (labelName === 'blocked') {
               console.log('Detected "blocked" label. Attempting to update project field to Blocked...');
               try {
                 const query = `
@@ -144,29 +143,29 @@ jobs:
               }
             }
 
-            // 2. Handle team roles assignment based on docs/TEAM_ROLES.md
+            // 2. Handle team roles assignment based on docs/TEAM_ROLES.md (exact label names)
             let teamName = null;
             let teamSlug = null;
 
-            if (label === 'adminarchs' || label === 'admin-archs') {
+            if (labelName === 'AdminArchs') {
               teamName = 'AdminArchs (Senior Maintainers & Core Architecture)';
               teamSlug = 'adminarchs';
-            } else if (label === 'pythondevs' || label === 'python-devs' || label === 'backend') {
+            } else if (labelName === 'PythonDevs') {
               teamName = 'PythonDevs (Core Engine Developers)';
               teamSlug = 'pythondevs';
-            } else if (label === 'aidevs' || label === 'ai-devs') {
+            } else if (labelName === 'AIDevs') {
               teamName = 'AIDevs (AI & Machine Learning Integration)';
               teamSlug = 'aidevs';
-            } else if (label === 'webdevs' || label === 'web-devs' || label === 'frontend') {
+            } else if (labelName === 'WebDevs') {
               teamName = 'WebDevs (Frontend & UI/UX)';
               teamSlug = 'webdevs';
-            } else if (label === 'extensiondevs' || label === 'extension-devs') {
+            } else if (labelName === 'ExtensionDevs') {
               teamName = 'ExtensionDevs (IDE & Browser Integrations)';
               teamSlug = 'extensiondevs';
-            } else if (label === 'docsexperts' || label === 'docs-experts' || label === 'docs') {
+            } else if (labelName === 'DocsExperts') {
               teamName = 'DocsExperts (Technical Writing & DevRel)';
               teamSlug = 'docsexperts';
-            } else if (label === 'testers' || label === 'qa') {
+            } else if (labelName === 'Testers') {
               teamName = 'Testers (QA & Benchmarking)';
               teamSlug = 'testers';
             }
