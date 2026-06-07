@@ -77,11 +77,17 @@ class PythonTreeSitterParser:
 
     def _get_parent_context(self, node, types=('function_definition', 'class_definition')):
         curr = node.parent
+        depth = 0
+        MAX_DEPTH = 20
         while curr:
+            if depth >= MAX_DEPTH:
+                warning_logger(f"[AST] _get_parent_context exceeded max depth ({MAX_DEPTH}) - stopping traversal.")
+                break
             if curr.type in types:
                 name_node = curr.child_by_field_name('name')
                 return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
             curr = curr.parent
+            depth += 1
         return None, None, None
 
     def _calculate_complexity(self, node):
@@ -92,13 +98,16 @@ class PythonTreeSitterParser:
         }
         count = 1
         
-        def traverse(n):
+        def traverse(n, depth=0):
             nonlocal count
+            if depth >= 20:
+                warning_logger(f"[AST] _calculate_complexity exceeded max depth (20) - stopping traversal.")
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
-        
+                traverse(child, depth + 1)
+
         traverse(node)
         return count
 

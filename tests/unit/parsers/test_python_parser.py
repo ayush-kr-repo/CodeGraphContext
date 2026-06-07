@@ -108,3 +108,38 @@ class Greeter:
         # Depending on implementation, methods might be in 'functions' with parent info
         # or inside 'classes'.
         # Let's assume they are captured.
+
+    def test_ast_recursion_depth_limit_parent_context(self, parser, tmp_path):
+        """_get_parent_context must not recurse beyond MAX_DEPTH on deeply nested functions."""
+        # Build a deeply nested function (25 levels) — exceeds the MAX_DEPTH of 20
+        indent = ""
+        code = ""
+        for i in range(25):
+            code += f"{indent}def level_{i}():\n"
+            indent += "    "
+        code += f"{indent}pass\n"
+
+        f = tmp_path / "deep_nesting.py"
+        f.write_text(code)
+
+        # Should not raise RecursionError — depth guard must kick in at 20
+        result = parser.parse(str(f))
+        assert "functions" in result
+
+    def test_ast_recursion_depth_limit_complexity(self, parser, tmp_path):
+        """_calculate_complexity must not crash on deeply nested if-statements."""
+        indent = ""
+        code = "def deeply_nested():\n"
+        indent = "    "
+        for i in range(25):
+            code += f"{indent}if True:\n"
+            indent += "    "
+        code += f"{indent}pass\n"
+
+        f = tmp_path / "deep_complexity.py"
+        f.write_text(code)
+
+        # Should not raise RecursionError — traverse depth guard must kick in
+        result = parser.parse(str(f))
+        assert "functions" in result
+        assert result["functions"][0]["name"] == "deeply_nested"
