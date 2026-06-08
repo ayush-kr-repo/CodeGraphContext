@@ -780,7 +780,13 @@ class CodeFinder:
 
         with self.driver.session() as session:
             repo_filter = "AND func.path STARTS WITH $repo_path" if repo_path else ""
-            decorator_filter = "AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)" if exclude_decorated_with else ""
+            decorator_filter = ""
+            if exclude_decorated_with:
+                any_conditions = " AND ".join(
+                    f"NOT ANY(d IN func.decorators WHERE d CONTAINS '{p.replace(chr(39), chr(39)+chr(39))}')"
+                    for p in exclude_decorated_with
+                )
+                decorator_filter = f"AND {any_conditions}"
             func_ignore = cypher_path_not_under_ignore_dirs("func.path")
             caller_ignore = cypher_path_not_under_ignore_dirs("caller.path")
             
@@ -816,9 +822,7 @@ class CodeFinder:
             params = {}
             if repo_path:
                 params["repo_path"] = repo_path
-            if exclude_decorated_with:
-                params["exclude_decorated_with"] = exclude_decorated_with
-                
+
             result = session.run(query, **params)
             
             return {
