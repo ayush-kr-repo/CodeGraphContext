@@ -464,8 +464,8 @@ class GraphWriter:
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.name})
-                    SET m.lang = coalesce(m.lang, row.lang),
-                        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
+                    SET m.lang = coalesce(row.lang, m.lang),
+                        m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
                     MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
                     SET r.alias = coalesce(row.alias, ""),
                         r.imported_name = row.imported_name,
