@@ -364,6 +364,7 @@ class GraphWriter:
                     UNWIND $batch AS row
                     MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
                     MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
+                    SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
                     batch=unique_params,
@@ -445,10 +446,9 @@ class GraphWriter:
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.module_name})
-                    MERGE (f)-[r:IMPORTS]->(m)
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
                     SET r.imported_name = row.imported_name,
-                        r.alias = row.alias,
-                        r.line_number = row.line_number
+                        r.alias = row.alias
                 """,
                     batch=js_imports,
                     file_path=file_path_str,
@@ -462,9 +462,8 @@ class GraphWriter:
                     MERGE (m:Module {name: row.name})
                     SET m.lang = coalesce(row.lang, m.lang),
                         m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
-                    MERGE (f)-[r:IMPORTS]->(m)
-                    SET r.line_number = row.line_number,
-                        r.alias = coalesce(row.alias, ""),
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
+                    SET r.alias = coalesce(row.alias, ""),
                         r.imported_name = row.imported_name,
                         r.full_import_name = row.full_import_name
                 """,

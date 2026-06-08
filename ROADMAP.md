@@ -1,6 +1,6 @@
 # CodeGraphContext: Master Roadmap & Engineering Audit
 
-> **Version**: 0.4.15 → 1.0.0  
+> **Version**: 0.4.16 → 1.0.0  
 > **Period**: June 2026 — December 2026  
 > **Milestones**: 100  
 
@@ -75,7 +75,7 @@ This section catalogs discovered code paths, architectural design details, hidde
 
 ## Part 2: Complete Inventory of Everything CGC Has Today
 
-### 📊 Project Statistics (as of v0.4.15)
+### 📊 Project Statistics (as of v0.4.16)
 * **Python lines**: ~25,000+
 * **Website (React/TS) lines**: ~15,000+
 * **VS Code Extension lines**: ~3,500+

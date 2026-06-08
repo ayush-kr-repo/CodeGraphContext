@@ -146,11 +146,11 @@ class CGCIgnoreMatcher:
             if is_dir_only:
                 pat = pat[:-1]
 
-            is_root_anchored = '/' in pat
-            if pat.startswith('/'):
+            is_root_anchored = pat.startswith('/')
+            if is_root_anchored:
                 pat = pat[1:]
 
-            segments = pat.split('**')
+            segments = [seg.strip('/') for seg in pat.split('**')]
             translated_segments = []
             for seg in segments:
                 if seg:

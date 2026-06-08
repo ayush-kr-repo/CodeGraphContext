@@ -139,7 +139,14 @@ class RepositoryEventHandler(FileSystemEventHandler):
             if "error" not in parsed_data:
                 self.all_file_data.append(parsed_data)
         
-        # 3. After all files are parsed, create the relationships (e.g., function calls) between them.
+        # 3. Persist parsed nodes, then create cross-file relationships.
+        repo_name = self.repo_path.name
+        repo_path_str = str(self.repo_path.resolve())
+        self.graph_builder.add_repository_to_graph(self.repo_path, is_dependency=False)
+        for file_data in self.all_file_data:
+            self.graph_builder.add_file_to_graph(
+                file_data, repo_name, self.imports_map, repo_path_str=repo_path_str
+            )
         self.graph_builder.link_function_calls(self.all_file_data, self.imports_map)
         self.graph_builder.link_inheritance(self.all_file_data, self.imports_map)
         # Free memory — all_file_data is only needed during the linking pass.
@@ -191,6 +198,11 @@ class RepositoryEventHandler(FileSystemEventHandler):
         timer = threading.Timer(self.debounce_interval, action)
         timer.start()
         self.timers[event_path] = timer
+
+    def cancel_timers(self) -> None:
+        for timer in self.timers.values():
+            timer.cancel()
+        self.timers.clear()
 
     def _update_imports_map_for_file(self, changed_path: Path):
         """Re-scan a single file and merge its contributions into self.imports_map.
@@ -361,6 +373,7 @@ class CodeWatcher:
         self.observer = Observer()
         self.watched_paths = set() # Keep track of paths already being watched.
         self.watches = {} # Store watch objects to allow unscheduling
+        self.handlers = {}  # path -> RepositoryEventHandler
 
     def watch_directory(
         self,
@@ -388,6 +401,7 @@ class CodeWatcher:
         
         watch = self.observer.schedule(event_handler, path_str, recursive=True)
         self.watches[path_str] = watch
+        self.handlers[path_str] = event_handler
         self.watched_paths.add(path_str)
         info_logger(f"Started watching for code changes in: {path_str}")
         
@@ -401,10 +415,14 @@ class CodeWatcher:
             warning_logger(f"Attempted to unwatch a path that is not being watched: {path_str}")
             return {"error": f"Path not currently being watched: {path_str}"}
 
+        handler = self.handlers.pop(path_str, None)
+        if handler:
+            handler.cancel_timers()
+
         watch = self.watches.pop(path_str, None)
         if watch:
             self.observer.unschedule(watch)
-        
+
         self.watched_paths.discard(path_str)
         info_logger(f"Stopped watching for code changes in: {path_str}")
         return {"message": f"Stopped watching {path_str}."}
@@ -421,6 +439,10 @@ class CodeWatcher:
 
     def stop(self):
         """Stops the observer thread gracefully."""
+        for handler in self.handlers.values():
+            handler.cancel_timers()
+        self.handlers.clear()
+
         if self.observer.is_alive():
             self.observer.stop()
             self.observer.join() # Wait for the thread to terminate.

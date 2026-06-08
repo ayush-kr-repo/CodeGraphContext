@@ -61,6 +61,7 @@ def test_code_watcher_forwards_startup_sync_option(tmp_path: Path):
     watcher.observer = MagicMock()
     watcher.watched_paths = set()
     watcher.watches = {}
+    watcher.handlers = {}
 
     with patch("codegraphcontext.core.watcher.RepositoryEventHandler") as handler_cls:
         watcher.watch_directory(
@@ -100,7 +101,10 @@ def test_mcp_watcher_syncs_already_indexed_repository(tmp_path: Path):
     code_watcher = MagicMock()
     code_watcher.watched_paths = set()
 
-    with patch.object(watcher_handlers, "any_repo_matches_path", return_value=True):
+    with (
+        patch.object(watcher_handlers, "is_path_allowed", return_value=True),
+        patch.object(watcher_handlers, "any_repo_matches_path", return_value=True),
+    ):
         result = watcher_handlers.watch_directory(
             code_watcher,
             list_repositories_func=lambda: {"repositories": [{"path": str(repo)}]},
