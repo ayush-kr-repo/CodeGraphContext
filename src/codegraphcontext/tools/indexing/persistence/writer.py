@@ -1412,9 +1412,11 @@ class GraphWriter:
                 with self.driver.session() as session:
                     result = session.run(
                         f"MATCH (a)-[r:{rel_type}]->(b) "
-                        "WHERE a.path STARTS WITH $prefix OR b.path STARTS WITH $prefix "
+                        "WHERE a.path STARTS WITH $prefix OR a.path = $path "
+                        "OR b.path STARTS WITH $prefix OR b.path = $path "
                         "WITH r LIMIT 5000 DELETE r RETURN count(r) AS deleted",
                         prefix=path_prefix,
+                        path=repo_path_str,
                     ).single()
                     deleted = result["deleted"] if result else 0
                 if deleted == 0:
@@ -1454,9 +1456,10 @@ class GraphWriter:
             while True:
                 with self.driver.session() as session:
                     result = session.run(
-                        f"MATCH (n:{label}) WHERE n.path STARTS WITH $prefix "
+                        f"MATCH (n:{label}) WHERE n.path STARTS WITH $prefix OR n.path = $path "
                         "WITH n LIMIT 10000 DETACH DELETE n RETURN count(n) AS deleted",
                         prefix=path_prefix,
+                        path=repo_path_str,
                     ).single()
                     deleted = result["deleted"] if result else 0
                 if deleted == 0:
