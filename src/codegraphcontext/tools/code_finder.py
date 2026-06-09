@@ -140,7 +140,7 @@ class CodeFinder:
         limit: int = 20,
     ) -> Dict[str, Any]:
         """Audit Kotlin function-to-function CALLS edges for multi-target callsites."""
-        repo_path = str(Path(repo_path).resolve()) if repo_path else None
+        repo_path = Path(repo_path).resolve().as_posix() if repo_path else None
         repo_filter = "AND a.path STARTS WITH $repo_path" if repo_path else ""
         query = f"""
             MATCH (a:Function)-[r:CALLS]->(b:Function)

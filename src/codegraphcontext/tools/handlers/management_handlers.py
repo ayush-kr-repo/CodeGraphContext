@@ -331,7 +331,7 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         with code_finder.db_manager.get_driver().session() as session:
             if repo_path:
                 # Stats for specific repository
-                repo_path_obj = str(Path(repo_path).resolve())
+                repo_path_obj = Path(repo_path).resolve().as_posix()
                 
                 # Check if repository exists
                 repo_query = """

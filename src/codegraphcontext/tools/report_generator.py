@@ -27,7 +27,7 @@ from ..utils.debug_log import info_logger
 
 def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Optional[str]:
     """Pick a single indexed repository to scope report queries."""
-    cwd = (cwd or Path.cwd()).resolve()
+    cwd_str = (cwd or Path.cwd()).resolve().as_posix()
     try:
         with db_manager.get_driver().session() as session:
             repos = session.run(
@@ -36,16 +36,16 @@ def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Op
     except Exception:
         return None
 
-    paths = [str(Path(r["path"]).resolve()) for r in repos if r.get("path")]
+    # DB stores all paths as forward slashes — keep them that way.
+    paths = [r["path"] for r in repos if r.get("path")]
     if not paths:
         return None
 
     # Prefer the longest repo path that contains cwd (nested workspace roots).
     matches = []
     for repo_path in paths:
-        repo = Path(repo_path)
-        if cwd == repo or str(cwd).startswith(str(repo) + os.sep):
-            matches.append(str(repo))
+        if cwd_str == repo_path or cwd_str.startswith(repo_path + "/"):
+            matches.append(repo_path)
     if matches:
         return max(matches, key=len)
 
@@ -65,7 +65,7 @@ def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Op
                 """
             ).single()
             if row and row.get("path"):
-                return str(Path(row["path"]).resolve())
+                return row["path"]
     except Exception:
         pass
     return None
@@ -74,7 +74,7 @@ def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Op
 def _repo_params(repo_path: Optional[str]) -> Dict[str, Any]:
     if not repo_path:
         return {}
-    return {"repo_path": repo_path + os.sep}
+    return {"repo_path": repo_path + "/"}
 
 
 def _run_cypher(driver: Any, query: str, params: Optional[Dict] = None) -> List[Dict]:
@@ -123,7 +123,7 @@ def _section_god_nodes(driver: Any, limit: int = 15, repo_path: Optional[str] = 
         ORDER BY in_degree DESC
         LIMIT $limit
         """,
-        {"limit": limit, "repo_path": (repo_path + os.sep) if repo_path else None},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -156,7 +156,7 @@ def _section_complexity(driver: Any, limit: int = 15, repo_path: Optional[str] =
         ORDER BY complexity DESC
         LIMIT $limit
         """,
-        {"limit": limit, "repo_path": (repo_path + os.sep) if repo_path else None},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -193,7 +193,7 @@ def _section_cross_module_calls(driver: Any, limit: int = 20, repo_path: Optiona
                c.confidence_label AS label
         LIMIT $limit
         """,
-        {"limit": limit, "repo_path": (repo_path + os.sep) if repo_path else None},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -231,7 +231,7 @@ def _section_dead_code(driver: Any, limit: int = 20, repo_path: Optional[str] = 
         ORDER BY fn.path, fn.name
         LIMIT $limit
         """,
-        {"limit": limit, "repo_path": (repo_path + os.sep) if repo_path else None},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
