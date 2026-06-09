@@ -46,3 +46,29 @@ def test_context_config_files_are_opened_with_utf8(tmp_path, monkeypatch):
     loaded = config_manager.load_context_config()
 
     assert loaded.default_context == "global"
+
+def test_find_local_env_does_not_traverse_parent_directories(tmp_path, monkeypatch):
+    """
+    .env files in parent directories should not be discovered.
+    """
+    parent_env = tmp_path / ".env"
+    parent_env.write_text("TEST=value", encoding="utf-8")
+
+    child_dir = tmp_path / "child"
+    child_dir.mkdir()
+
+    monkeypatch.chdir(child_dir)
+
+    result = config_manager.find_local_env()
+
+    assert result is None
+
+def test_find_local_env_finds_env_in_current_directory(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TEST=value", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+
+    result = config_manager.find_local_env()
+
+    assert result == env_file
