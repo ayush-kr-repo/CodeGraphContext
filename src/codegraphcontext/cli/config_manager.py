@@ -302,24 +302,17 @@ def find_local_env() -> Optional[Path]:
         return None
 
     current = Path.cwd()
-    
-    # Search up to 5 levels up
-    for _ in range(5):
-        # 1. Prefer .codegraphcontext/.env if it exists
-        cgc_env = current / ".codegraphcontext" / ".env"
-        if cgc_env.exists() and cgc_env != CONFIG_FILE:
-            return cgc_env
-            
-        # 2. Fall back to root project .env
-        env_file = current / ".env"
-        if env_file.exists() and env_file != CONFIG_FILE:
-            return env_file
-        
-        # Stop at root
-        if current.parent == current:
-            break
-        current = current.parent
-    
+
+    # Prefer .codegraphcontext/.env in the current directory
+    cgc_env = current / ".codegraphcontext" / ".env"
+    if cgc_env.exists() and cgc_env != CONFIG_FILE:
+        return cgc_env
+
+    # Fall back to .env in the current directory
+    env_file = current / ".env"
+    if env_file.exists() and env_file != CONFIG_FILE:
+        return env_file
+
     return None
 
 
