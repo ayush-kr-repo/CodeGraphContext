@@ -174,7 +174,7 @@ def _make_writer() -> tuple[GraphWriter, MagicMock]:
     return writer, mock_session
 
 
-def _make_writer_with_delete_mocks() -> tuple[GraphWriter, MagicMock, MagicMock]:
+def _make_writer_with_delete_mocks() -> tuple[GraphWriter, MagicMock]:
     """
     Return a GraphWriter with a mocked driver that returns proper values
     for delete_repository_from_graph:
