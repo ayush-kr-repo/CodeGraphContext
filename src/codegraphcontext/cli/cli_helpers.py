@@ -415,6 +415,49 @@ def delete_helper(repo_path: str, context: Optional[str] = None):
     finally:
         db_manager.close_driver()
 
+def _print_query_exception(e: Exception, query: str) -> None:
+    """
+    Pretty-print a database query exception, surfacing the raw driver
+    error message so Cypher syntax problems are clearly visible.
+    """
+    import traceback
+
+    error_type = type(e).__name__
+    error_module = type(e).__module__ or ""
+
+    # Neo4j: CypherSyntaxError and other ClientError subclasses carry
+    # a .message and .code attribute with the full server-side detail.
+    if "neo4j" in error_module:
+        code = getattr(e, "code", None)
+        msg = getattr(e, "message", None) or str(e)
+        console.print(f"[bold red]Query Error ({error_type}):[/bold red]")
+        if code:
+            console.print(f"  [yellow]Code:[/yellow] {code}")
+        console.print(f"  [yellow]Message:[/yellow] {msg}")
+
+    # FalkorDB: ResponseError / exceptions in falkordb or redis packages
+    elif "falkordb" in error_module or "redis" in error_module:
+        console.print(f"[bold red]Query Error ({error_type}):[/bold red]")
+        console.print(f"  [yellow]Database message:[/yellow] {e}")
+
+    # KuzuDB: RuntimeError from the kuzu extension
+    # KuzuDB: RuntimeError from the kuzu extension or database_kuzu wrapper
+    elif "kuzu" in error_module or (
+        error_type == "RuntimeError" and "Parser exception" in str(e)
+    ):
+        console.print(f"[bold red]Query Error ({error_type}):[/bold red]")
+        console.print(f"  [yellow]Database message:[/yellow] {e}")
+
+    else:
+        # Fallback: unknown backend — print type + message + traceback
+        console.print(f"[bold red]An error occurred while executing query ({error_type}):[/bold red]")
+        console.print(f"  [yellow]Message:[/yellow] {e}")
+        console.print("[dim]--- Traceback ---[/dim]")
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    console.print(f"\n[dim]Failed query:[/dim]")
+    console.print(f"[dim]  {query}[/dim]")
+
 
 def cypher_helper(query: str, context: Optional[str] = None):
     """Executes a read-only Cypher query."""
@@ -440,7 +483,7 @@ def cypher_helper(query: str, context: Optional[str] = None):
             records = [record.data() for record in result]
             console.print(json.dumps(records, indent=2))
     except Exception as e:
-        console.print(f"[bold red]An error occurred while executing query:[/bold red] {e}")
+        _print_query_exception(e, query)
         db_manager.close_driver()
         raise typer.Exit(code=1)
     finally:
@@ -466,7 +509,7 @@ def cypher_helper_visual(query: str, context: Optional[str] = None):
     try:
         visualize_cypher_results(query)
     except Exception as e:
-        console.print(f"[bold red]An error occurred while executing query:[/bold red] {e}")
+        _print_query_exception(e, query)
         db_manager.close_driver()
         raise typer.Exit(code=1)
     finally:
